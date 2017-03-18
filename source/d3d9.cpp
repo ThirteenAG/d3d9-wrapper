@@ -17,13 +17,10 @@ HRESULT f_IDirect3DDevice9::Present(CONST RECT *pSourceRect, CONST RECT *pDestRe
 
         if (bA)
         {
-            if (bFPSLimit)
-            {
-                QueryPerformanceCounter(&PerformanceCount);
-                double i = 1.0 / fFPSLimit - (double)(PerformanceCount.QuadPart - gPerformanceCount.QuadPart) / (double)Frequency.QuadPart;
-                if (i > 0.0)
-                    Sleep((DWORD)(i * 1000.0));
-            }
+            QueryPerformanceCounter(&PerformanceCount);
+            double i = 1.0 / fFPSLimit - (double)(PerformanceCount.QuadPart - gPerformanceCount.QuadPart) / (double)Frequency.QuadPart;
+            if (i > 0.0)
+                Sleep((DWORD)(i * 1000.0));
         }
         auto hr = f_pD3DDevice->Present(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
         QueryPerformanceFrequency(&Frequency);
