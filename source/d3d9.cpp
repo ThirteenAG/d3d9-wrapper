@@ -3,7 +3,7 @@
 /*************************
 FPS Limit
 *************************/
-bool bFPSLimit;
+bool bFPSLimit, bForceWindowedMode;
 double fFPSLimit;
 
 HRESULT f_IDirect3DDevice9::Present(CONST RECT *pSourceRect, CONST RECT *pDestRect, HWND hDestWindowOverride, CONST RGNDATA *pDirtyRegion)
@@ -40,6 +40,24 @@ HRESULT f_iD3D9::CreateDevice(UINT Adapter, D3DDEVTYPE DeviceType, HWND hFocusWi
     *ppReturnedDeviceInterface = *temp;
     delete temp;
 
+    if (bForceWindowedMode)
+    {
+        HMONITOR monitor = MonitorFromWindow(GetDesktopWindow(), MONITOR_DEFAULTTONEAREST);
+        MONITORINFO info;
+        info.cbSize = sizeof(MONITORINFO);
+        GetMonitorInfo(monitor, &info);
+        int DesktopResX = info.rcMonitor.right - info.rcMonitor.left;
+        int DesktopResY = info.rcMonitor.bottom - info.rcMonitor.top;
+
+        int left = (int)(((float)DesktopResX / 2.0f) - ((float)pPresentationParameters->BackBufferWidth / 2.0f));
+        int top = (int)(((float)DesktopResY / 2.0f) - ((float)pPresentationParameters->BackBufferHeight / 2.0f));
+
+        pPresentationParameters->hDeviceWindow = hFocusWindow;
+        pPresentationParameters->Windowed = true;
+
+        SetWindowPos(pPresentationParameters->hDeviceWindow, HWND_NOTOPMOST, left, top, pPresentationParameters->BackBufferWidth, pPresentationParameters->BackBufferHeight, SWP_SHOWWINDOW);
+    }
+
     if (bFPSLimit)
         pPresentationParameters->PresentationInterval = 0x80000000;
 
@@ -70,6 +88,7 @@ bool WINAPI DllMain(HMODULE hModule, DWORD fdwReason, LPVOID lpReserved) {
           GetModuleFileNameA(hm, path, sizeof(path));
           *strrchr(path, '\\') = '\0';
           strcat(path, "\\d3d9.ini");
+          bForceWindowedMode = GetPrivateProfileInt("MAIN", "ForceWindowedMode", 0, path) != 0;
           fFPSLimit = static_cast<double>(GetPrivateProfileInt("MAIN", "FPSLimit", 0, path));
           if (fFPSLimit)
               bFPSLimit = true;
