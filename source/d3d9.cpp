@@ -4,7 +4,7 @@
 FPS Limit
 *************************/
 bool bFPSLimit, bForceWindowedMode;
-double fFPSLimit;
+float fFPSLimit;
 
 HRESULT f_IDirect3DDevice9::Present(CONST RECT *pSourceRect, CONST RECT *pDestRect, HWND hDestWindowOverride, CONST RGNDATA *pDirtyRegion)
 {
@@ -112,7 +112,7 @@ bool WINAPI DllMain(HMODULE hModule, DWORD fdwReason, LPVOID lpReserved) {
           *strrchr(path, '\\') = '\0';
           strcat_s(path, "\\d3d9.ini");
           bForceWindowedMode = GetPrivateProfileInt("MAIN", "ForceWindowedMode", 0, path) != 0;
-          fFPSLimit = static_cast<double>(GetPrivateProfileInt("MAIN", "FPSLimit", 0, path));
+          fFPSLimit = static_cast<float>(GetPrivateProfileInt("MAIN", "FPSLimit", 0, path));
           if (fFPSLimit)
               bFPSLimit = true;
 
