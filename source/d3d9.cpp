@@ -10,22 +10,45 @@ HRESULT f_IDirect3DDevice9::Present(CONST RECT *pSourceRect, CONST RECT *pDestRe
 {
     if (bFPSLimit)
     {
-        static bool bA;
-        static LARGE_INTEGER gPerformanceCount;
-        LARGE_INTEGER PerformanceCount;
         static LARGE_INTEGER Frequency;
+        static LARGE_INTEGER currCounter;
+        static LARGE_INTEGER startCounter;
+        static DWORD nextTicks;
+        static float curFPS;
 
-        if (bA)
+        static DWORD updateInterval = 1000;
+        static DWORD startTime = 0;
+        static DWORD nfps = 0;
+
+        nfps++;
+
+        auto dt = GetTickCount() - startTime;
+        curFPS = (float)(nfps*1000.0 / (float)dt);
+
+        if (dt > updateInterval) {
+            nfps = 0;
+            startTime = GetTickCount() + 1;
+        }
+
+        QueryPerformanceCounter(&currCounter);
+        while (currCounter.QuadPart <= (startCounter.QuadPart + nextTicks))
         {
-            QueryPerformanceCounter(&PerformanceCount);
-            double i = 1.0 / fFPSLimit - (double)(PerformanceCount.QuadPart - gPerformanceCount.QuadPart) / (double)Frequency.QuadPart;
-            if (i > 0.0)
-                Sleep((DWORD)(i * 1000.0));
+            if (curFPS > fFPSLimit)
+            {
+                Sleep(1);
+            }
+            else
+                break;
+
+            QueryPerformanceCounter(&currCounter);
         }
         auto hr = f_pD3DDevice->Present(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
         QueryPerformanceFrequency(&Frequency);
-        QueryPerformanceCounter(&gPerformanceCount);
-        bA = true;
+        nextTicks = (DWORD)((float)Frequency.QuadPart / fFPSLimit);
+        currCounter.QuadPart = 0;
+        startCounter.QuadPart = 0;
+        QueryPerformanceCounter(&startCounter);
+
         return hr;
     }
     else
@@ -87,14 +110,14 @@ bool WINAPI DllMain(HMODULE hModule, DWORD fdwReason, LPVOID lpReserved) {
           GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)&f_Direct3DCreate9, &hm);
           GetModuleFileNameA(hm, path, sizeof(path));
           *strrchr(path, '\\') = '\0';
-          strcat(path, "\\d3d9.ini");
+          strcat_s(path, "\\d3d9.ini");
           bForceWindowedMode = GetPrivateProfileInt("MAIN", "ForceWindowedMode", 0, path) != 0;
           fFPSLimit = static_cast<double>(GetPrivateProfileInt("MAIN", "FPSLimit", 0, path));
           if (fFPSLimit)
               bFPSLimit = true;
 
           GetSystemDirectory(path, MAX_PATH);
-          strcat(path, "\\d3d9.dll");
+          strcat_s(path, "\\d3d9.dll");
           hModule = LoadLibrary(path);
           orig_Direct3DCreate9 = (D3DC9)GetProcAddress(hModule, "Direct3DCreate9");
           break;
