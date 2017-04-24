@@ -55,6 +55,23 @@ HRESULT f_IDirect3DDevice9::Present(CONST RECT *pSourceRect, CONST RECT *pDestRe
         return f_pD3DDevice->Present(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
 }
 
+void ForceWindowed(D3DPRESENT_PARAMETERS *pPresentationParameters)
+{
+    HMONITOR monitor = MonitorFromWindow(GetDesktopWindow(), MONITOR_DEFAULTTONEAREST);
+    MONITORINFO info;
+    info.cbSize = sizeof(MONITORINFO);
+    GetMonitorInfo(monitor, &info);
+    int DesktopResX = info.rcMonitor.right - info.rcMonitor.left;
+    int DesktopResY = info.rcMonitor.bottom - info.rcMonitor.top;
+
+    int left = (int)(((float)DesktopResX / 2.0f) - ((float)pPresentationParameters->BackBufferWidth / 2.0f));
+    int top = (int)(((float)DesktopResY / 2.0f) - ((float)pPresentationParameters->BackBufferHeight / 2.0f));
+
+    pPresentationParameters->Windowed = true;
+
+    SetWindowPos(pPresentationParameters->hDeviceWindow, HWND_NOTOPMOST, left, top, pPresentationParameters->BackBufferWidth, pPresentationParameters->BackBufferHeight, SWP_SHOWWINDOW);
+}
+
 HRESULT f_iD3D9::CreateDevice(UINT Adapter, D3DDEVTYPE DeviceType, HWND hFocusWindow, DWORD BehaviorFlags, D3DPRESENT_PARAMETERS *pPresentationParameters, IDirect3DDevice9 **ppReturnedDeviceInterface)
 {
     LPDIRECT3DDEVICE9 *temp = ppReturnedDeviceInterface;
@@ -64,22 +81,7 @@ HRESULT f_iD3D9::CreateDevice(UINT Adapter, D3DDEVTYPE DeviceType, HWND hFocusWi
     delete temp;
 
     if (bForceWindowedMode)
-    {
-        HMONITOR monitor = MonitorFromWindow(GetDesktopWindow(), MONITOR_DEFAULTTONEAREST);
-        MONITORINFO info;
-        info.cbSize = sizeof(MONITORINFO);
-        GetMonitorInfo(monitor, &info);
-        int DesktopResX = info.rcMonitor.right - info.rcMonitor.left;
-        int DesktopResY = info.rcMonitor.bottom - info.rcMonitor.top;
-
-        int left = (int)(((float)DesktopResX / 2.0f) - ((float)pPresentationParameters->BackBufferWidth / 2.0f));
-        int top = (int)(((float)DesktopResY / 2.0f) - ((float)pPresentationParameters->BackBufferHeight / 2.0f));
-
-        pPresentationParameters->hDeviceWindow = hFocusWindow;
-        pPresentationParameters->Windowed = true;
-
-        SetWindowPos(pPresentationParameters->hDeviceWindow, HWND_NOTOPMOST, left, top, pPresentationParameters->BackBufferWidth, pPresentationParameters->BackBufferHeight, SWP_SHOWWINDOW);
-    }
+        ForceWindowed(pPresentationParameters);
 
     if (bFPSLimit)
         pPresentationParameters->PresentationInterval = 0x80000000;
@@ -87,6 +89,20 @@ HRESULT f_iD3D9::CreateDevice(UINT Adapter, D3DDEVTYPE DeviceType, HWND hFocusWi
     HRESULT hr = f_pD3D->CreateDevice(Adapter, DeviceType, hFocusWindow, BehaviorFlags, pPresentationParameters, ppReturnedDeviceInterface);
 
     // NOTE: initialize your custom D3D components here.
+
+    return hr;
+}
+
+HRESULT f_IDirect3DDevice9::Reset(D3DPRESENT_PARAMETERS *pPresentationParameters)
+{
+    if (bForceWindowedMode)
+        ForceWindowed(pPresentationParameters);
+
+    // NOTE: call onLostDevice for custom D3D components here.
+
+    HRESULT hr = f_pD3DDevice->Reset(pPresentationParameters);
+
+    // NOTE: call onResetDevice for custom D3D components here.
 
     return hr;
 }
@@ -148,16 +164,16 @@ Augmented Callbacks
 //   return hr;
 //}
 
-HRESULT f_IDirect3DDevice9::Reset(D3DPRESENT_PARAMETERS *pPresentationParameters) 
-{
-   // NOTE: call onLostDevice for custom D3D components here.
-
-   HRESULT hr = f_pD3DDevice->Reset(pPresentationParameters);
-
-   // NOTE: call onResetDevice for custom D3D components here.
-
-   return hr;
-}
+//HRESULT f_IDirect3DDevice9::Reset(D3DPRESENT_PARAMETERS *pPresentationParameters) 
+//{
+//   // NOTE: call onLostDevice for custom D3D components here.
+//
+//   HRESULT hr = f_pD3DDevice->Reset(pPresentationParameters);
+//
+//   // NOTE: call onResetDevice for custom D3D components here.
+//
+//   return hr;
+//}
 
 HRESULT f_IDirect3DDevice9::EndScene() 
 {
