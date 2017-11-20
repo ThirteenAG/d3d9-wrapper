@@ -38,7 +38,7 @@ HRESULT f_iD3D9::CreateDevice(UINT Adapter, D3DDEVTYPE DeviceType, HWND hFocusWi
 
     *temp = new f_IDirect3DDevice9(*ppReturnedDeviceInterface, &ppReturnedDeviceInterface);
     *ppReturnedDeviceInterface = *temp;
-    delete temp;
+    //delete temp; //crash in the suffering
 
     if (bForceWindowedMode)
     {
