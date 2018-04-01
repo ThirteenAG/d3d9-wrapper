@@ -78,7 +78,6 @@ HRESULT f_iD3D9::CreateDevice(UINT Adapter, D3DDEVTYPE DeviceType, HWND hFocusWi
 
     *temp = new f_IDirect3DDevice9(*ppReturnedDeviceInterface, &ppReturnedDeviceInterface);
     *ppReturnedDeviceInterface = *temp;
-    //delete temp; //crash in the suffering
 
     if (bForceWindowedMode)
         ForceWindowed(pPresentationParameters);
@@ -265,12 +264,20 @@ ULONG f_iD3D9::AddRef()
 
 HRESULT f_iD3D9::QueryInterface(REFIID riid, LPVOID *ppvObj)
 {
-    return f_pD3D->QueryInterface(riid, ppvObj);
+    *ppvObj = NULL;
+    HRESULT hr = f_pD3D->QueryInterface(riid, ppvObj);
+    if (hr == D3D_OK)
+        *ppvObj = this;
+    return hr;
 }
 
 ULONG f_iD3D9::Release()
 {
-    return f_pD3D->Release();
+    ULONG count = f_pD3D->Release();
+    if (count == 0) {
+        delete(this);
+    }
+    return(count);
 }
 
 HRESULT f_iD3D9::EnumAdapterModes(THIS_ UINT Adapter, D3DFORMAT Format, UINT Mode, D3DDISPLAYMODE* pMode)
@@ -355,12 +362,20 @@ ULONG f_IDirect3DDevice9::AddRef()
 
 HRESULT f_IDirect3DDevice9::QueryInterface(REFIID riid, LPVOID *ppvObj)
 {
-    return f_pD3DDevice->QueryInterface(riid, ppvObj);
+    *ppvObj = NULL;
+    HRESULT hr = f_pD3DDevice->QueryInterface(riid, ppvObj);
+    if (hr == D3D_OK)
+        *ppvObj = this;
+    return hr;
 }
 
 ULONG f_IDirect3DDevice9::Release()
 {
-    return f_pD3DDevice->Release();
+    ULONG count = f_pD3DDevice->Release();
+    if (count == 0) {
+        delete(this);
+    }
+    return (count);
 }
 
 void f_IDirect3DDevice9::SetCursorPosition(int X, int Y, DWORD Flags)

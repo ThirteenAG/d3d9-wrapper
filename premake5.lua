@@ -17,7 +17,7 @@ workspace "d3d9-wrapper"
    defines { "rsc_CompanyName=\"ThirteenAG\"" }
    defines { "rsc_LegalCopyright=\"MIT License\""} 
    defines { "rsc_FileVersion=\"1.0.0.0\"", "rsc_ProductVersion=\"1.0.0.0\"" }
-   defines { "rsc_InternalName=\"%{prj.name}\"", "rsc_ProductName=\"%{prj.name}\"", "rsc_OriginalFilename=\"%{prj.name}.asi\"" }
+   defines { "rsc_InternalName=\"%{prj.name}\"", "rsc_ProductName=\"%{prj.name}\"", "rsc_OriginalFilename=\"d3d9.dll\"" }
    defines { "rsc_FileDescription=\"https://thirteenag.github.io/wfp\"" }
    defines { "rsc_UpdateUrl=\"https://github.com/ThirteenAG/%{prj.name}\"" }
    
