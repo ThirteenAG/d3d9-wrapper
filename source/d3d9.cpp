@@ -10,45 +10,59 @@ HRESULT f_IDirect3DDevice9::Present(CONST RECT *pSourceRect, CONST RECT *pDestRe
 {
     if (bFPSLimit)
     {
-        static LARGE_INTEGER Frequency;
-        static LARGE_INTEGER currCounter;
-        static LARGE_INTEGER startCounter;
-        static DWORD nextTicks;
-        static float curFPS;
+        static LARGE_INTEGER PerformanceCount1;
+        static LARGE_INTEGER PerformanceCount2;
+        static bool bOnce1 = false;
+        static double targetFrameTime = 1000.0 / fFPSLimit;
+        static double t = 0.0;
+        static DWORD i = 0;
 
-        static DWORD updateInterval = 1000;
-        static DWORD startTime = 0;
-        static DWORD nfps = 0;
-
-        nfps++;
-
-        auto dt = GetTickCount() - startTime;
-        curFPS = (float)(nfps*1000.0 / (float)dt);
-
-        if (dt > updateInterval) {
-            nfps = 0;
-            startTime = GetTickCount() + 1;
+        if (!bOnce1)
+        {
+            bOnce1 = true;
+            QueryPerformanceCounter(&PerformanceCount1);
+            PerformanceCount1.QuadPart = PerformanceCount1.QuadPart >> i;
         }
 
-        QueryPerformanceCounter(&currCounter);
-        while (currCounter.QuadPart <= (startCounter.QuadPart + nextTicks))
+        while (true)
         {
-            if (curFPS > fFPSLimit)
+            QueryPerformanceCounter(&PerformanceCount2);
+            if (t == 0.0)
             {
-                Sleep(1);
+                LARGE_INTEGER PerformanceCount3;
+                static bool bOnce2 = false;
+
+                if (!bOnce2)
+                {
+                    bOnce2 = true;
+                    QueryPerformanceFrequency(&PerformanceCount3);
+                    i = 0;
+                    t = 1000.0 / (double)PerformanceCount3.QuadPart;
+                    auto v = t * 2147483648.0;
+                    if (60000.0 > v)
+                    {
+                        while (true)
+                        {
+                            ++i;
+                            v *= 2.0;
+                            t *= 2.0;
+                            if (60000.0 <= v)
+                                break;
+                        }
+                    }
+                }
+                SleepEx(0, 1);
+                break;
             }
-            else
+
+            if (((double)((PerformanceCount2.QuadPart >> i) - PerformanceCount1.QuadPart) * t) >= targetFrameTime)
                 break;
 
-            QueryPerformanceCounter(&currCounter);
+            SleepEx(0, 1);
         }
         auto hr = f_pD3DDevice->Present(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
-        QueryPerformanceFrequency(&Frequency);
-        nextTicks = (DWORD)((float)Frequency.QuadPart / fFPSLimit);
-        currCounter.QuadPart = 0;
-        startCounter.QuadPart = 0;
-        QueryPerformanceCounter(&startCounter);
-
+        QueryPerformanceCounter(&PerformanceCount2);
+        PerformanceCount1.QuadPart = PerformanceCount2.QuadPart >> i;
         return hr;
     }
     else
