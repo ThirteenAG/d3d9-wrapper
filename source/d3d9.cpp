@@ -60,10 +60,9 @@ HRESULT f_IDirect3DDevice9::Present(CONST RECT *pSourceRect, CONST RECT *pDestRe
 
             SleepEx(0, 1);
         }
-        auto hr = f_pD3DDevice->Present(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
         QueryPerformanceCounter(&PerformanceCount2);
         PerformanceCount1.QuadPart = PerformanceCount2.QuadPart >> i;
-        return hr;
+        return f_pD3DDevice->Present(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
     }
     else
         return f_pD3DDevice->Present(pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
