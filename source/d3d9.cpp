@@ -95,9 +95,6 @@ HRESULT f_iD3D9::CreateDevice(UINT Adapter, D3DDEVTYPE DeviceType, HWND hFocusWi
     if (bForceWindowedMode)
         ForceWindowed(pPresentationParameters);
 
-    if (bFPSLimit)
-        pPresentationParameters->PresentationInterval = 0x80000000;
-
     HRESULT hr = f_pD3D->CreateDevice(Adapter, DeviceType, hFocusWindow, BehaviorFlags, pPresentationParameters, ppReturnedDeviceInterface);
 
     // NOTE: initialize your custom D3D components here.
