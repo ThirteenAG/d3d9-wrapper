@@ -1,18 +1,18 @@
-LIBRARY "d3d9"
-
+LIBRARY d3d9
 EXPORTS
-    D3DPERF_BeginEvent = f_D3DPERF_BeginEvent @26
-    D3DPERF_EndEvent = f_D3DPERF_EndEvent @27
-    D3DPERF_GetStatus = f_D3DPERF_GetStatus @28
-    D3DPERF_QueryRepeatFrame = f_D3DPERF_QueryRepeatFrame @29
-    D3DPERF_SetMarker = f_D3DPERF_SetMarker @30
-    D3DPERF_SetOptions = f_D3DPERF_SetOptions @31
-    D3DPERF_SetRegion = f_D3DPERF_SetRegion @32
-    DebugSetLevel = f_DebugSetLevel @33
-    DebugSetMute = f_DebugSetMute @34
-    Direct3D9EnableMaximizedWindowedModeShim = f_Direct3D9EnableMaximizedWindowedModeShim @35
-    Direct3DCreate9 = f_Direct3DCreate9 @36
-    Direct3DCreate9Ex = f_Direct3DCreate9Ex @37
-    Direct3DShaderValidatorCreate9 = f_Direct3DShaderValidatorCreate9 @23
-    PSGPError = f_PSGPError @24
-    PSGPSampleTexture = f_PSGPSampleTexture @25
+
+Direct3DShaderValidatorCreate9				@19
+PSGPError									@20
+PSGPSampleTexture							@21
+D3DPERF_BeginEvent							@22
+D3DPERF_EndEvent							@23
+D3DPERF_GetStatus							@24
+D3DPERF_QueryRepeatFrame					@25
+D3DPERF_SetMarker							@26
+D3DPERF_SetOptions							@27
+D3DPERF_SetRegion							@28
+DebugSetLevel								@29
+DebugSetMute								@30
+Direct3D9EnableMaximizedWindowedModeShim	@31
+Direct3DCreate9								@32
+Direct3DCreate9Ex							@33
