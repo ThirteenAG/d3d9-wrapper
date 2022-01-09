@@ -16,5 +16,5 @@ deploy:
 - provider: GitHub
   release: d3d9-wrapper v$(appveyor_build_version)
   auth_token:
-    secure: SXMI7bm5RKh5j1S8A8dnUP2HFw97xHHlJH+mA0hx819vtxOPCpMFY3aFZ+2v16ri
+    secure: aCLEg3b6b9NxfLYfc/a6KRp3hJUgelndAtNXJcsKLvOULq8ZA5r64Z8PkSUI36rQ
   artifact: d3d9.zip
