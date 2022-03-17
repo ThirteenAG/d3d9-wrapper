@@ -447,7 +447,7 @@ int WINAPI Direct3D9EnableMaximizedWindowedModeShim(BOOL mEnable)
 {
 	if (!m_pDirect3D9EnableMaximizedWindowedModeShim)
 	{
-		return E_FAIL;
+		return NULL;
 	}
 
 	return m_pDirect3D9EnableMaximizedWindowedModeShim(mEnable);
