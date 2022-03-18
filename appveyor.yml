@@ -33,7 +33,7 @@ deploy:
 - provider: GitHub
   release: d3d9-wrapper v$(appveyor_build_version)
   auth_token:
-    secure: aCLEg3b6b9NxfLYfc/a6KRp3hJUgelndAtNXJcsKLvOULq8ZA5r64Z8PkSUI36rQ
+    secure: ugbti+bXX/7zqu39OyiPxgRPd2pQn2FEV/12ABees2fHfpZob0tWXzqD/zSYmibJ
   artifact: d3d9.zip,d3d9_x64.zip
 matrix:
   fast_finish: true
