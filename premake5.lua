@@ -1,7 +1,6 @@
 workspace "d3d9-wrapper"
    configurations { "Release", "Debug" }
-   platforms { "Win32" }
-   architecture "x32"
+   platforms { "Win32", "Win64" }
    location "build"
    objdir ("build/obj")
    buildlog ("build/log/%{prj.name}.log")
@@ -9,7 +8,6 @@ workspace "d3d9-wrapper"
    
    kind "SharedLib"
    language "C++"
-   targetdir "data"
    targetname "d3d9"
    targetextension ".dll"
    characterset ("MBCS")
@@ -33,5 +31,13 @@ workspace "d3d9-wrapper"
    filter "configurations:Release"
       defines "NDEBUG"
       optimize "On"
+      
+   filter "platforms:Win32"
+      architecture "x32"
+      targetdir "data"
+      
+   filter "platforms:Win64"
+      architecture "x64"
+      targetdir "data/x64"
 
 project "d3d9-wrapper"
