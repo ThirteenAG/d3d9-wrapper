@@ -2,19 +2,38 @@ version: 1.{build}
 skip_tags: true
 image: Visual Studio 2022
 configuration: Release
+platform:
+- Win32
+- Win64
 install:
 - cmd: premake5.bat
 build:
   project: build/d3d9-wrapper.sln
   verbosity: minimal
-after_build:
-- cmd: 7z a d3d9.zip %APPVEYOR_BUILD_FOLDER%\data\d3d9.dll %APPVEYOR_BUILD_FOLDER%\data\d3d9.ini
-artifacts:
-- path: d3d9.zip
-  name: d3d9
+for:
+-
+  matrix:
+    only:
+      - platform: Win32
+  after_build:
+    - cmd: 7z a d3d9.zip %APPVEYOR_BUILD_FOLDER%\data\d3d9.dll %APPVEYOR_BUILD_FOLDER%\data\d3d9.ini
+  artifacts:
+    - path: d3d9.zip
+      name: d3d9
+-
+  matrix:
+    only:
+      - platform: Win64
+  after_build:
+    - cmd: 7z a d3d9_x64.zip %APPVEYOR_BUILD_FOLDER%\data\x64\d3d9.dll %APPVEYOR_BUILD_FOLDER%\data\d3d9.ini
+  artifacts:
+    - path: d3d9_x64.zip
+      name: d3d9_x64
 deploy:
 - provider: GitHub
   release: d3d9-wrapper v$(appveyor_build_version)
   auth_token:
     secure: aCLEg3b6b9NxfLYfc/a6KRp3hJUgelndAtNXJcsKLvOULq8ZA5r64Z8PkSUI36rQ
-  artifact: d3d9.zip
+  artifact: d3d9.zip,d3d9_x64.zip
+matrix:
+  fast_finish: true
