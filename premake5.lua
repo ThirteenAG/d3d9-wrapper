@@ -23,6 +23,7 @@ workspace "d3d9-wrapper"
    files { "source/*.h", "source/*.cpp" }
    files { "source/*.def" }
    files { "source/*.rc" }
+   includedirs { "source/dxsdk" }
       
    filter "configurations:Debug"
       defines "DEBUG"
@@ -35,9 +36,11 @@ workspace "d3d9-wrapper"
    filter "platforms:Win32"
       architecture "x32"
       targetdir "data"
+	  libdirs { "source/dxsdk/lib/x86" }
       
    filter "platforms:Win64"
       architecture "x64"
       targetdir "data/x64"
+	  libdirs { "source/dxsdk/lib/x64" }
 
 project "d3d9-wrapper"
