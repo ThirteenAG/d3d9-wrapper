@@ -295,6 +295,37 @@ void ForceWindowed(D3DPRESENT_PARAMETERS* pPresentationParameters, D3DDISPLAYMOD
     }
 }
 
+void ForceFullScreenRefreshRateInHz(D3DPRESENT_PARAMETERS* pPresentationParameters)
+{
+    if (!pPresentationParameters->Windowed)
+    {
+        std::vector<int> list;
+        DISPLAY_DEVICE dd;
+        dd.cb = sizeof(DISPLAY_DEVICE);
+        DWORD deviceNum = 0;
+        while (EnumDisplayDevices(NULL, deviceNum, &dd, 0))
+        {
+            DISPLAY_DEVICE newdd = { 0 };
+            newdd.cb = sizeof(DISPLAY_DEVICE);
+            DWORD monitorNum = 0;
+            DEVMODE dm = { 0 };
+            while (EnumDisplayDevices(dd.DeviceName, monitorNum, &newdd, 0))
+            {
+                for (auto iModeNum = 0; EnumDisplaySettings(NULL, iModeNum, &dm) != 0; iModeNum++)
+                    list.emplace_back(dm.dmDisplayFrequency);
+                monitorNum++;
+            }
+            deviceNum++;
+        }
+
+        std::sort(list.begin(), list.end());
+        if (nFullScreenRefreshRateInHz > list.back() || nFullScreenRefreshRateInHz < list.front() || nFullScreenRefreshRateInHz < 0)
+            pPresentationParameters->FullScreen_RefreshRateInHz = list.back();
+        else
+            pPresentationParameters->FullScreen_RefreshRateInHz = nFullScreenRefreshRateInHz;
+    }
+}
+
 HRESULT m_IDirect3D9Ex::CreateDevice(UINT Adapter, D3DDEVTYPE DeviceType, HWND hFocusWindow, DWORD BehaviorFlags, D3DPRESENT_PARAMETERS* pPresentationParameters, IDirect3DDevice9** ppReturnedDeviceInterface)
 {
     if (bForceWindowedMode)
@@ -304,35 +335,7 @@ HRESULT m_IDirect3D9Ex::CreateDevice(UINT Adapter, D3DDEVTYPE DeviceType, HWND h
     }
 
     if (nFullScreenRefreshRateInHz)
-    {
-        if (!pPresentationParameters->Windowed)
-        {
-            std::vector<int> list;
-            DISPLAY_DEVICE dd;
-            dd.cb = sizeof(DISPLAY_DEVICE);
-            DWORD deviceNum = 0;
-            while (EnumDisplayDevices(NULL, deviceNum, &dd, 0))
-            {
-                DISPLAY_DEVICE newdd = { 0 };
-                newdd.cb = sizeof(DISPLAY_DEVICE);
-                DWORD monitorNum = 0;
-                DEVMODE dm = { 0 };
-                while (EnumDisplayDevices(dd.DeviceName, monitorNum, &newdd, 0))
-                {
-                    for (auto iModeNum = 0; EnumDisplaySettings(NULL, iModeNum, &dm) != 0; iModeNum++)
-                        list.emplace_back(dm.dmDisplayFrequency);
-                    monitorNum++;
-                }
-                deviceNum++;
-            }
-
-            std::sort(list.begin(), list.end());
-            if (nFullScreenRefreshRateInHz > list.back() || nFullScreenRefreshRateInHz < list.front() || nFullScreenRefreshRateInHz < 0)
-                pPresentationParameters->FullScreen_RefreshRateInHz = list.back();
-            else
-                pPresentationParameters->FullScreen_RefreshRateInHz = nFullScreenRefreshRateInHz;
-        }
-    }
+        ForceFullScreenRefreshRateInHz(pPresentationParameters);
     
     if (bDisplayFPSCounter)
     {
@@ -358,6 +361,9 @@ HRESULT m_IDirect3DDevice9Ex::Reset(D3DPRESENT_PARAMETERS* pPresentationParamete
 {
     if (bForceWindowedMode)
         ForceWindowed(pPresentationParameters);
+
+    if (nFullScreenRefreshRateInHz)
+        ForceFullScreenRefreshRateInHz(pPresentationParameters);
 
     if (bDisplayFPSCounter)
     {
@@ -391,6 +397,9 @@ HRESULT m_IDirect3D9Ex::CreateDeviceEx(THIS_ UINT Adapter, D3DDEVTYPE DeviceType
         ForceWindowed(pPresentationParameters, pFullscreenDisplayMode);
     }
 
+    if (nFullScreenRefreshRateInHz)
+        ForceFullScreenRefreshRateInHz(pPresentationParameters);
+
     if (bDisplayFPSCounter)
     {
         if (FrameLimiter::pFPSFont)
@@ -415,6 +424,9 @@ HRESULT m_IDirect3DDevice9Ex::ResetEx(THIS_ D3DPRESENT_PARAMETERS* pPresentation
 {
     if (bForceWindowedMode)
         ForceWindowed(pPresentationParameters, pFullscreenDisplayMode);
+
+    if (nFullScreenRefreshRateInHz)
+        ForceFullScreenRefreshRateInHz(pPresentationParameters);
     
     if (bDisplayFPSCounter)
     {
