@@ -16,6 +16,7 @@
 
 #include "d3d9.h"
 #include "d3dx9.h"
+#include "iathook.h"
 
 #pragma comment(lib, "d3dx9.lib")
 #pragma comment(lib, "winmm.lib") // needed for timeBeginPeriod()/timeEndPeriod()
@@ -43,6 +44,7 @@ bool bUsePrimaryMonitor;
 bool bCenterWindow;
 bool bBorderlessFullscreen;
 bool bAlwaysOnTop;
+bool bDoNotNotifyOnTaskSwitch;
 bool bDisplayFPSCounter;
 float fFPSLimit;
 
@@ -406,6 +408,62 @@ HRESULT m_IDirect3DDevice9Ex::ResetEx(THIS_ D3DPRESENT_PARAMETERS* pPresentation
     return hRet;
 }
 
+LRESULT(WINAPI* WndProc)(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+LRESULT WINAPI CustomWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    if (uMsg == WM_ACTIVATE || uMsg == WM_NCACTIVATE)
+    {
+        WndProc(hWnd, uMsg, wParam, lParam);
+
+        switch (LOWORD(wParam))
+        {
+        case WA_INACTIVE:
+            SetWindowPos(hWnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
+            break;
+        default: // WA_ACTIVE or WA_CLICKACTIVE
+            SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
+            break;
+        }
+
+        return 0;
+    }
+
+    return WndProc(hWnd, uMsg, wParam, lParam);
+}
+
+typedef ATOM(__stdcall* RegisterClassA_fn)(const WNDCLASSA*);
+typedef ATOM(__stdcall* RegisterClassW_fn)(const WNDCLASSW*);
+typedef ATOM(__stdcall* RegisterClassExA_fn)(const WNDCLASSEXA*);
+typedef ATOM(__stdcall* RegisterClassExW_fn)(const WNDCLASSEXW*);
+RegisterClassA_fn oRegisterClassA;
+RegisterClassW_fn oRegisterClassW;
+RegisterClassExA_fn oRegisterClassExA;
+RegisterClassExW_fn oRegisterClassExW;
+ATOM hk_RegisterClassA(WNDCLASSA* lpWndClass)
+{
+    WndProc = lpWndClass->lpfnWndProc;
+    lpWndClass->lpfnWndProc = CustomWndProc;
+    return oRegisterClassA(lpWndClass);
+}
+ATOM hk_RegisterClassW(WNDCLASSW* lpWndClass)
+{
+    WndProc = lpWndClass->lpfnWndProc;
+    lpWndClass->lpfnWndProc = CustomWndProc;
+    return oRegisterClassW(lpWndClass);
+}
+ATOM hk_RegisterClassExA(WNDCLASSEXA* lpWndClass)
+{
+    WndProc = lpWndClass->lpfnWndProc;
+    lpWndClass->lpfnWndProc = CustomWndProc;
+    return oRegisterClassExA(lpWndClass);
+}
+ATOM hk_RegisterClassExW(WNDCLASSEXW* lpWndClass)
+{
+    WndProc = lpWndClass->lpfnWndProc;
+    lpWndClass->lpfnWndProc = CustomWndProc;
+    return oRegisterClassExW(lpWndClass);
+}
+
 bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
 {
     static HMODULE d3d9dll = nullptr;
@@ -452,6 +510,7 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
                 bCenterWindow = GetPrivateProfileInt("FORCEWINDOWED", "CenterWindow", 1, path) != 0;
                 bBorderlessFullscreen = GetPrivateProfileInt("FORCEWINDOWED", "BorderlessFullscreen", 0, path) != 0;
                 bAlwaysOnTop = GetPrivateProfileInt("FORCEWINDOWED", "AlwaysOnTop", 0, path) != 0;
+                bDoNotNotifyOnTaskSwitch = GetPrivateProfileInt("FORCEWINDOWED", "DoNotNotifyOnTaskSwitch", 0, path) != 0;
 
                 if (fFPSLimit > 0.0f)
                 {
@@ -464,6 +523,22 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
                 }
                 else
                     mFPSLimitMode = FrameLimiter::FPSLimitMode::FPS_NONE;
+                
+                if (bDoNotNotifyOnTaskSwitch)
+                {
+                    oRegisterClassA = (RegisterClassA_fn)Iat_hook::detour_iat_ptr("RegisterClassA", (void*)hk_RegisterClassA);
+                    oRegisterClassW = (RegisterClassW_fn)Iat_hook::detour_iat_ptr("RegisterClassW", (void*)hk_RegisterClassW);
+                    oRegisterClassExA = (RegisterClassExA_fn)Iat_hook::detour_iat_ptr("RegisterClassExA", (void*)hk_RegisterClassExA);
+                    oRegisterClassExW = (RegisterClassExW_fn)Iat_hook::detour_iat_ptr("RegisterClassExW", (void*)hk_RegisterClassExW);
+                    HMODULE user32 = GetModuleHandleA("user32.dll");
+                    if (user32)
+                    {
+                        Iat_hook::detour_iat_ptr("RegisterClassA", (void*)hk_RegisterClassA, user32);
+                        Iat_hook::detour_iat_ptr("RegisterClassW", (void*)hk_RegisterClassW, user32);
+                        Iat_hook::detour_iat_ptr("RegisterClassExA", (void*)hk_RegisterClassExA, user32);
+                        Iat_hook::detour_iat_ptr("RegisterClassExW", (void*)hk_RegisterClassExW, user32);
+                    }
+                }
             }
         }
         break;
