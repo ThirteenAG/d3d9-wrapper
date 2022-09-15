@@ -47,6 +47,7 @@ bool bAlwaysOnTop;
 bool bDoNotNotifyOnTaskSwitch;
 bool bDisplayFPSCounter;
 float fFPSLimit;
+int nFullScreenRefreshRateInHz;
 
 class FrameLimiter
 {
@@ -301,6 +302,37 @@ HRESULT m_IDirect3D9Ex::CreateDevice(UINT Adapter, D3DDEVTYPE DeviceType, HWND h
         g_hFocusWindow = hFocusWindow;
         ForceWindowed(pPresentationParameters);
     }
+
+    if (nFullScreenRefreshRateInHz)
+    {
+        if (!pPresentationParameters->Windowed)
+        {
+            std::vector<int> list;
+            DISPLAY_DEVICE dd;
+            dd.cb = sizeof(DISPLAY_DEVICE);
+            DWORD deviceNum = 0;
+            while (EnumDisplayDevices(NULL, deviceNum, &dd, 0))
+            {
+                DISPLAY_DEVICE newdd = { 0 };
+                newdd.cb = sizeof(DISPLAY_DEVICE);
+                DWORD monitorNum = 0;
+                DEVMODE dm = { 0 };
+                while (EnumDisplayDevices(dd.DeviceName, monitorNum, &newdd, 0))
+                {
+                    for (auto iModeNum = 0; EnumDisplaySettings(NULL, iModeNum, &dm) != 0; iModeNum++)
+                        list.emplace_back(dm.dmDisplayFrequency);
+                    monitorNum++;
+                }
+                deviceNum++;
+            }
+
+            std::sort(list.begin(), list.end());
+            if (nFullScreenRefreshRateInHz > list.back() || nFullScreenRefreshRateInHz < list.front() || nFullScreenRefreshRateInHz < 0)
+                pPresentationParameters->FullScreen_RefreshRateInHz = list.back();
+            else
+                pPresentationParameters->FullScreen_RefreshRateInHz = nFullScreenRefreshRateInHz;
+        }
+    }
     
     if (bDisplayFPSCounter)
     {
@@ -505,6 +537,7 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
                 strcat_s(path, "\\d3d9.ini");
                 bForceWindowedMode = GetPrivateProfileInt("MAIN", "ForceWindowedMode", 0, path) != 0;
                 fFPSLimit = static_cast<float>(GetPrivateProfileInt("MAIN", "FPSLimit", 0, path));
+                nFullScreenRefreshRateInHz = GetPrivateProfileInt("MAIN", "FullScreenRefreshRateInHz", 0, path);
                 bDisplayFPSCounter = GetPrivateProfileInt("MAIN", "DisplayFPSCounter", 0, path);
                 bUsePrimaryMonitor = GetPrivateProfileInt("FORCEWINDOWED", "UsePrimaryMonitor", 0, path) != 0;
                 bCenterWindow = GetPrivateProfileInt("FORCEWINDOWED", "CenterWindow", 1, path) != 0;
