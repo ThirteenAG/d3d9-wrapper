@@ -128,11 +128,17 @@ public:
         if (m_times.size() >= 2)
             fps = static_cast<uint32_t>(0.5f + (static_cast<float>(m_times.size() - 1) * static_cast<float>(frequency.QuadPart)) / static_cast<float>(m_times.back() - m_times.front()));
 
+        static int space = 0;
         if (!pFPSFont || !pTimeFont)
         {
+            D3DDEVICE_CREATION_PARAMETERS cparams;
+            RECT rect;
+            device->GetCreationParameters(&cparams);
+            GetClientRect(cparams.hFocusWindow, &rect);
+            
             D3DXFONT_DESC fps_font;
             ZeroMemory(&fps_font, sizeof(D3DXFONT_DESC));
-            fps_font.Height = 35;
+            fps_font.Height = rect.bottom / 20;
             fps_font.Width = 0;
             fps_font.Weight = 400;
             fps_font.MipLevels = 0;
@@ -145,7 +151,8 @@ public:
             memcpy(&fps_font.FaceName, &FaceName, sizeof(FaceName));
 
             D3DXFONT_DESC time_font = fps_font;
-            time_font.Height = 20;
+            time_font.Height = rect.bottom / 35;
+            space = fps_font.Height + 5;
 
             if (D3DXCreateFontIndirect(device, &fps_font, &pFPSFont) != D3D_OK)
                 return;
@@ -187,7 +194,7 @@ public:
             static char str_format_time[] = "%.01f ms";
             static const D3DXCOLOR YELLOW(D3DCOLOR_XRGB(0xF7, 0xF7, 0));
             DrawTextOutline(pFPSFont, 10, 10, YELLOW, str_format_fps, fps);
-            DrawTextOutline(pTimeFont, 10, 40, YELLOW, str_format_time, (1.0f / fps) * 1000.0f);
+            DrawTextOutline(pTimeFont, 10, space, YELLOW, str_format_time, (1.0f / fps) * 1000.0f);
         }
     }
 
