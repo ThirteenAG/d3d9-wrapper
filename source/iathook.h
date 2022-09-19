@@ -17,60 +17,72 @@ namespace Iat_hook
         const PIMAGE_NT_HEADERS ntHeader = reinterpret_cast<PIMAGE_NT_HEADERS>(instance + reinterpret_cast<PIMAGE_DOS_HEADER>(instance)->e_lfanew);
         PIMAGE_IMPORT_DESCRIPTOR pImports = reinterpret_cast<PIMAGE_IMPORT_DESCRIPTOR>(instance + ntHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
 
-        for (; pImports->Name != 0; pImports++)
+        __try
         {
-            auto mod_name = reinterpret_cast<const char*>((size_t*)(pImports->Name + (size_t)hModule));
-            if (_stricmp(reinterpret_cast<const char*>(instance + pImports->Name), mod_name) == 0)
+            for (; pImports->Name != 0; pImports++)
             {
-                if (pImports->OriginalFirstThunk != 0)
+                auto mod_name = reinterpret_cast<const char*>((size_t*)(pImports->Name + (size_t)hModule));
+                if (_stricmp(reinterpret_cast<const char*>(instance + pImports->Name), mod_name) == 0)
                 {
-                    const PIMAGE_THUNK_DATA pThunk = reinterpret_cast<PIMAGE_THUNK_DATA>(instance + pImports->OriginalFirstThunk);
-                    for (ptrdiff_t j = 0; pThunk[j].u1.AddressOfData != 0; j++)
+                    if (pImports->OriginalFirstThunk != 0)
                     {
-                        if (strcmp(reinterpret_cast<PIMAGE_IMPORT_BY_NAME>(instance + pThunk[j].u1.AddressOfData)->Name, function) == 0)
+                        const PIMAGE_THUNK_DATA pThunk = reinterpret_cast<PIMAGE_THUNK_DATA>(instance + pImports->OriginalFirstThunk);
+                        for (ptrdiff_t j = 0; pThunk[j].u1.AddressOfData != 0; j++)
                         {
-                            void** pAddress = reinterpret_cast<void**>(instance + pImports->FirstThunk) + j;
-                            return pAddress;
+                            if (strcmp(reinterpret_cast<PIMAGE_IMPORT_BY_NAME>(instance + pThunk[j].u1.AddressOfData)->Name, function) == 0)
+                            {
+                                void** pAddress = reinterpret_cast<void**>(instance + pImports->FirstThunk) + j;
+                                return pAddress;
+                            }
                         }
                     }
-                }
-                else
-                {
-                    void** pFunctions = reinterpret_cast<void**>(instance + pImports->FirstThunk);
-                    for (ptrdiff_t j = 0; pFunctions[j] != nullptr; j++)
+                    else
                     {
-                        if (pFunctions[j] == function)
+                        void** pFunctions = reinterpret_cast<void**>(instance + pImports->FirstThunk);
+                        for (ptrdiff_t j = 0; pFunctions[j] != nullptr; j++)
                         {
-                            return &pFunctions[j];
+                            if (pFunctions[j] == function)
+                            {
+                                return &pFunctions[j];
+                            }
                         }
                     }
                 }
             }
         }
+        __except ((GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION) ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH)
+        {
+        }
 
-        for (IMAGE_IMPORT_DESCRIPTOR* iid = pImports; iid->Name != 0; iid++) {
-            if (chModule != NULL)
-            {
-                char* mod_name = (char*)((size_t*)(iid->Name + (size_t)hModule));
-                if (lstrcmpiA(chModule, mod_name))
-                    continue;
-            }
-            for (int func_idx = 0; *(func_idx + (void**)(iid->FirstThunk + (size_t)hModule)) != NULL; func_idx++) {
-                size_t mod_func_ptr_ord = (size_t)(*(func_idx + (size_t*)(iid->OriginalFirstThunk + (size_t)hModule)));
-                char* mod_func_name = (char*)(mod_func_ptr_ord + (size_t)hModule + 2);
-                const intptr_t nmod_func_name = (intptr_t)mod_func_name;
-                if (nmod_func_name >= 0) {
-                    if (function != NULL && !lstrcmpA(function, mod_func_name))
-                        return func_idx + (void**)(iid->FirstThunk + (size_t)hModule);
-                }
-                else if (IMAGE_SNAP_BY_ORDINAL(mod_func_ptr_ord))
+        __try
+        {
+            for (IMAGE_IMPORT_DESCRIPTOR* iid = pImports; iid->Name != 0; iid++) {
+                if (chModule != NULL)
                 {
-                    if (chModule != NULL && ordinal != 0 && (ordinal == IMAGE_ORDINAL(mod_func_ptr_ord)))
-                        return func_idx + (void**)(iid->FirstThunk + (size_t)hModule);
+                    char* mod_name = (char*)((size_t*)(iid->Name + (size_t)hModule));
+                    if (lstrcmpiA(chModule, mod_name))
+                        continue;
+                }
+                for (int func_idx = 0; *(func_idx + (void**)(iid->FirstThunk + (size_t)hModule)) != NULL; func_idx++) {
+                    size_t mod_func_ptr_ord = (size_t)(*(func_idx + (size_t*)(iid->OriginalFirstThunk + (size_t)hModule)));
+                    char* mod_func_name = (char*)(mod_func_ptr_ord + (size_t)hModule + 2);
+                    const intptr_t nmod_func_name = (intptr_t)mod_func_name;
+                    if (nmod_func_name >= 0) {
+                        if (function != NULL && !lstrcmpA(function, mod_func_name))
+                            return func_idx + (void**)(iid->FirstThunk + (size_t)hModule);
+                    }
+                    else if (IMAGE_SNAP_BY_ORDINAL(mod_func_ptr_ord))
+                    {
+                        if (chModule != NULL && ordinal != 0 && (ordinal == IMAGE_ORDINAL(mod_func_ptr_ord)))
+                            return func_idx + (void**)(iid->FirstThunk + (size_t)hModule);
+                    }
                 }
             }
         }
-
+        __except ((GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION) ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH)
+        {
+        }
+        
         return 0;
     }
 
