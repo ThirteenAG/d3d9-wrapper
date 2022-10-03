@@ -490,25 +490,25 @@ RegisterClassA_fn oRegisterClassA;
 RegisterClassW_fn oRegisterClassW;
 RegisterClassExA_fn oRegisterClassExA;
 RegisterClassExW_fn oRegisterClassExW;
-ATOM hk_RegisterClassA(WNDCLASSA* lpWndClass)
+ATOM __stdcall hk_RegisterClassA(WNDCLASSA* lpWndClass)
 {
     WndProc = lpWndClass->lpfnWndProc;
     lpWndClass->lpfnWndProc = CustomWndProc;
     return oRegisterClassA(lpWndClass);
 }
-ATOM hk_RegisterClassW(WNDCLASSW* lpWndClass)
+ATOM __stdcall hk_RegisterClassW(WNDCLASSW* lpWndClass)
 {
     WndProc = lpWndClass->lpfnWndProc;
     lpWndClass->lpfnWndProc = CustomWndProc;
     return oRegisterClassW(lpWndClass);
 }
-ATOM hk_RegisterClassExA(WNDCLASSEXA* lpWndClass)
+ATOM __stdcall hk_RegisterClassExA(WNDCLASSEXA* lpWndClass)
 {
     WndProc = lpWndClass->lpfnWndProc;
     lpWndClass->lpfnWndProc = CustomWndProc;
     return oRegisterClassExA(lpWndClass);
 }
-ATOM hk_RegisterClassExW(WNDCLASSEXW* lpWndClass)
+ATOM __stdcall hk_RegisterClassExW(WNDCLASSEXW* lpWndClass)
 {
     WndProc = lpWndClass->lpfnWndProc;
     lpWndClass->lpfnWndProc = CustomWndProc;
