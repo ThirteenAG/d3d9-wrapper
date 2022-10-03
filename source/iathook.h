@@ -41,7 +41,7 @@ namespace Iat_hook
                         void** pFunctions = reinterpret_cast<void**>(instance + pImports->FirstThunk);
                         for (ptrdiff_t j = 0; pFunctions[j] != nullptr; j++)
                         {
-                            if (pFunctions[j] == function)
+                            if (pFunctions[j] == GetProcAddress(GetModuleHandle(mod_name), function))
                             {
                                 return &pFunctions[j];
                             }
