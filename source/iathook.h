@@ -8,12 +8,12 @@
 namespace Iat_hook
 {
 #endif
-    void** find_iat_func(const char* function, HMODULE hModule, const char* chModule, const DWORD ordinal)
+    void** find_iat_func(const char* function, HMODULE hModule/*, const char* chModule, const DWORD ordinal*/)
     {
         if (!hModule)
             hModule = GetModuleHandle(nullptr);
         
-        const DWORD_PTR instance = reinterpret_cast<DWORD_PTR>(GetModuleHandle(nullptr));
+        const DWORD_PTR instance = reinterpret_cast<DWORD_PTR>(hModule);
         const PIMAGE_NT_HEADERS ntHeader = reinterpret_cast<PIMAGE_NT_HEADERS>(instance + reinterpret_cast<PIMAGE_DOS_HEADER>(instance)->e_lfanew);
         PIMAGE_IMPORT_DESCRIPTOR pImports = reinterpret_cast<PIMAGE_IMPORT_DESCRIPTOR>(instance + ntHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
 
@@ -88,9 +88,9 @@ namespace Iat_hook
         return 0;
     }
 
-    uintptr_t detour_iat_ptr(const char* function, void* newfunction, HMODULE hModule = NULL, const char* chModule = NULL, const DWORD ordinal = 0)
+    uintptr_t detour_iat_ptr(const char* function, void* newfunction, HMODULE hModule = NULL /*, const char* chModule = NULL, const DWORD ordinal = 0 */)
     {
-        void** func_ptr = find_iat_func(function, hModule, chModule, ordinal);
+        void** func_ptr = find_iat_func(function, hModule/*, chModule, ordinal*/);
         if (!func_ptr || *func_ptr == newfunction || *func_ptr == NULL)
             return 0;
 
