@@ -54,6 +54,7 @@ namespace Iat_hook
         {
         }
 
+        /*
         __try
         {
             for (IMAGE_IMPORT_DESCRIPTOR* iid = pImports; iid->Name != 0; iid++) {
@@ -82,7 +83,8 @@ namespace Iat_hook
         __except ((GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION) ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH)
         {
         }
-        
+        */
+
         return 0;
     }
 
