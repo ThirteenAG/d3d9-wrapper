@@ -8,7 +8,7 @@
 namespace Iat_hook
 {
 #endif
-    void** find_iat_func(const char* function, HMODULE hModule/*, const char* chModule, const DWORD ordinal*/)
+    void** find_iat_func(const char* function, HMODULE hModule, const char* chModule, const DWORD ordinal)
     {
         if (!hModule)
             hModule = GetModuleHandle(nullptr);
@@ -53,8 +53,7 @@ namespace Iat_hook
         __except ((GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION) ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH)
         {
         }
-
-        /*
+        
         __try
         {
             for (IMAGE_IMPORT_DESCRIPTOR* iid = pImports; iid->Name != 0; iid++) {
@@ -83,14 +82,13 @@ namespace Iat_hook
         __except ((GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION) ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH)
         {
         }
-        */
-
+        
         return 0;
     }
 
-    uintptr_t detour_iat_ptr(const char* function, void* newfunction, HMODULE hModule = NULL /*, const char* chModule = NULL, const DWORD ordinal = 0 */)
+    uintptr_t detour_iat_ptr(const char* function, void* newfunction, HMODULE hModule = NULL , const char* chModule = NULL, const DWORD ordinal = 0)
     {
-        void** func_ptr = find_iat_func(function, hModule/*, chModule, ordinal*/);
+        void** func_ptr = find_iat_func(function, hModule, chModule, ordinal);
         if (!func_ptr || *func_ptr == newfunction || *func_ptr == NULL)
             return 0;
 
