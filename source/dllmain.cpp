@@ -17,6 +17,7 @@
 #include "d3d9.h"
 #include "d3dx9.h"
 #include "iathook.h"
+#include "helpers.h"
 
 #pragma comment(lib, "d3dx9.lib")
 #pragma comment(lib, "winmm.lib") // needed for timeBeginPeriod()/timeEndPeriod()
@@ -38,6 +39,9 @@ Direct3DCreate9Proc m_pDirect3DCreate9;
 Direct3DCreate9ExProc m_pDirect3DCreate9Ex;
 
 HWND g_hFocusWindow = NULL;
+HMODULE g_hWrapperModule = NULL;
+
+HMODULE d3d9dll = NULL;
 
 bool bForceWindowedMode;
 bool bUsePrimaryMonitor;
@@ -48,6 +52,14 @@ bool bDoNotNotifyOnTaskSwitch;
 bool bDisplayFPSCounter;
 float fFPSLimit;
 int nFullScreenRefreshRateInHz;
+
+char WinDir[MAX_PATH+1];
+
+// List of registered window classes and procedures
+// WORD classAtom, ULONG_PTR WndProcPtr
+std::vector<std::pair<WORD,ULONG_PTR>> WndProcList;
+
+void HookModule(HMODULE hmod);
 
 class FrameLimiter
 {
@@ -335,9 +347,9 @@ void ForceFullScreenRefreshRateInHz(D3DPRESENT_PARAMETERS* pPresentationParamete
 
 HRESULT m_IDirect3D9Ex::CreateDevice(UINT Adapter, D3DDEVTYPE DeviceType, HWND hFocusWindow, DWORD BehaviorFlags, D3DPRESENT_PARAMETERS* pPresentationParameters, IDirect3DDevice9** ppReturnedDeviceInterface)
 {
+    g_hFocusWindow = hFocusWindow ? hFocusWindow : pPresentationParameters->hDeviceWindow;
     if (bForceWindowedMode)
     {
-        g_hFocusWindow = hFocusWindow;
         ForceWindowed(pPresentationParameters);
     }
 
@@ -398,9 +410,9 @@ HRESULT m_IDirect3DDevice9Ex::Reset(D3DPRESENT_PARAMETERS* pPresentationParamete
 
 HRESULT m_IDirect3D9Ex::CreateDeviceEx(THIS_ UINT Adapter, D3DDEVTYPE DeviceType, HWND hFocusWindow, DWORD BehaviorFlags, D3DPRESENT_PARAMETERS* pPresentationParameters, D3DDISPLAYMODEEX* pFullscreenDisplayMode, IDirect3DDevice9Ex** ppReturnedDeviceInterface)
 {
+    g_hFocusWindow = hFocusWindow ? hFocusWindow : pPresentationParameters->hDeviceWindow;
     if (bForceWindowedMode)
     {
-        g_hFocusWindow = hFocusWindow;
         ForceWindowed(pPresentationParameters, pFullscreenDisplayMode);
     }
 
@@ -459,70 +471,439 @@ HRESULT m_IDirect3DDevice9Ex::ResetEx(THIS_ D3DPRESENT_PARAMETERS* pPresentation
     return hRet;
 }
 
-LRESULT(WINAPI* WndProc)(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
-LRESULT WINAPI CustomWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+LRESULT WINAPI CustomWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, int idx)
 {
-    if (uMsg == WM_ACTIVATE || uMsg == WM_NCACTIVATE)
+    if (hWnd == g_hFocusWindow || _fnIsTopLevelWindow(hWnd)) // skip child windows like buttons, edit boxes, etc. 
     {
-        WndProc(hWnd, uMsg, wParam, lParam);
-
-        switch (LOWORD(wParam))
+        if (bAlwaysOnTop)
         {
-        case WA_INACTIVE:
-            SetWindowPos(hWnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
-            break;
-        default: // WA_ACTIVE or WA_CLICKACTIVE
-            SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
-            break;
+            if ((GetWindowLong(hWnd, GWL_EXSTYLE) & WS_EX_TOPMOST) == 0)
+                SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
         }
-
-        return 0;
+        switch (uMsg)
+        {
+            case WM_ACTIVATE:
+                if (LOWORD(wParam) == WA_INACTIVE)
+                {
+                    if ((HWND)lParam == NULL)
+                        return 0;
+                    DWORD dwPID = 0;
+                    GetWindowThreadProcessId((HWND)lParam, &dwPID);
+                    if (dwPID != GetCurrentProcessId())
+                        return 0;
+                }
+                break;
+            case WM_NCACTIVATE:
+                if (LOWORD(wParam) == WA_INACTIVE)
+                    return 0;
+                break;
+            case WM_ACTIVATEAPP:
+                if (wParam == FALSE)
+                    return 0;
+                break;
+            case WM_KILLFOCUS:
+                {
+                if ((HWND)wParam == NULL)
+                    return 0;
+                DWORD dwPID = 0;
+                GetWindowThreadProcessId((HWND)wParam, &dwPID);
+                if (dwPID != GetCurrentProcessId())
+                    return 0;
+                }
+                break;
+            default:
+                break;
+        }
     }
+    WNDPROC OrigProc = WNDPROC(WndProcList[idx].second);
+    return OrigProc(hWnd, uMsg, wParam, lParam);
+}
 
-    return WndProc(hWnd, uMsg, wParam, lParam);
+LRESULT WINAPI CustomWndProcA(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    WORD wClassAtom = GetClassWord(hWnd, GCW_ATOM);
+    if (wClassAtom)
+    {
+        for (unsigned int i = 0; i < WndProcList.size(); i++) {
+            if (WndProcList[i].first == wClassAtom) {
+                return CustomWndProc(hWnd, uMsg, wParam, lParam, i);
+            }
+        }
+    }
+    // We should never reach here, but having safeguards anyway is good
+    return DefWindowProcA(hWnd, uMsg, wParam, lParam);
+}
+
+LRESULT WINAPI CustomWndProcW(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+    WORD wClassAtom = GetClassWord(hWnd, GCW_ATOM);
+    if (wClassAtom)
+    {
+        for (unsigned int i = 0; i < WndProcList.size(); i++) {
+            if (WndProcList[i].first == wClassAtom) {
+                return CustomWndProc(hWnd, uMsg, wParam, lParam, i);
+            }
+        }
+    }
+    // We should never reach here, but having safeguards anyway is good
+    return DefWindowProcW(hWnd, uMsg, wParam, lParam);
 }
 
 typedef ATOM(__stdcall* RegisterClassA_fn)(const WNDCLASSA*);
 typedef ATOM(__stdcall* RegisterClassW_fn)(const WNDCLASSW*);
 typedef ATOM(__stdcall* RegisterClassExA_fn)(const WNDCLASSEXA*);
 typedef ATOM(__stdcall* RegisterClassExW_fn)(const WNDCLASSEXW*);
-RegisterClassA_fn oRegisterClassA;
-RegisterClassW_fn oRegisterClassW;
-RegisterClassExA_fn oRegisterClassExA;
-RegisterClassExW_fn oRegisterClassExW;
+RegisterClassA_fn oRegisterClassA = NULL;
+RegisterClassW_fn oRegisterClassW = NULL;
+RegisterClassExA_fn oRegisterClassExA = NULL;
+RegisterClassExW_fn oRegisterClassExW = NULL;
 ATOM __stdcall hk_RegisterClassA(WNDCLASSA* lpWndClass)
 {
-    WndProc = lpWndClass->lpfnWndProc;
-    lpWndClass->lpfnWndProc = CustomWndProc;
-    return oRegisterClassA(lpWndClass);
+    if (!IsValueIntAtom(DWORD(lpWndClass->lpszClassName))) { // argument is a class name
+        if (IsSystemClassNameA(lpWndClass->lpszClassName)) { // skip system classes like buttons, common controls, etc.
+            return oRegisterClassA(lpWndClass);
+        }
+    }
+    ULONG_PTR pWndProc = ULONG_PTR(lpWndClass->lpfnWndProc);
+    lpWndClass->lpfnWndProc = CustomWndProcA;
+    WORD wClassAtom = oRegisterClassA(lpWndClass);
+    if (wClassAtom != 0)
+    {
+        WndProcList.emplace_back(wClassAtom, pWndProc);
+    }
+    return wClassAtom;
 }
 ATOM __stdcall hk_RegisterClassW(WNDCLASSW* lpWndClass)
 {
-    WndProc = lpWndClass->lpfnWndProc;
-    lpWndClass->lpfnWndProc = CustomWndProc;
-    return oRegisterClassW(lpWndClass);
+    if (!IsValueIntAtom(DWORD(lpWndClass->lpszClassName))) { // argument is a class name
+        if (IsSystemClassNameW(lpWndClass->lpszClassName)) { // skip system classes like buttons, common controls, etc.
+            return oRegisterClassW(lpWndClass);
+        }
+    }
+    ULONG_PTR pWndProc = ULONG_PTR(lpWndClass->lpfnWndProc);
+    lpWndClass->lpfnWndProc = CustomWndProcW;
+    WORD wClassAtom = oRegisterClassW(lpWndClass);
+    if (wClassAtom != 0)
+    {
+        WndProcList.emplace_back(wClassAtom, pWndProc);
+    }
+    return wClassAtom;
 }
 ATOM __stdcall hk_RegisterClassExA(WNDCLASSEXA* lpWndClass)
 {
-    WndProc = lpWndClass->lpfnWndProc;
-    lpWndClass->lpfnWndProc = CustomWndProc;
-    return oRegisterClassExA(lpWndClass);
+    if (!IsValueIntAtom(DWORD(lpWndClass->lpszClassName))) { // argument is a class name
+        if (IsSystemClassNameA(lpWndClass->lpszClassName)) { // skip system classes like buttons, common controls, etc.
+            return oRegisterClassExA(lpWndClass);
+        }
+    }
+    ULONG_PTR pWndProc = ULONG_PTR(lpWndClass->lpfnWndProc);
+    lpWndClass->lpfnWndProc = CustomWndProcA;
+    WORD wClassAtom = oRegisterClassExA(lpWndClass);
+    if (wClassAtom != 0)
+    {
+        WndProcList.emplace_back(wClassAtom, pWndProc);
+    }
+    return wClassAtom;
 }
 ATOM __stdcall hk_RegisterClassExW(WNDCLASSEXW* lpWndClass)
 {
-    WndProc = lpWndClass->lpfnWndProc;
-    lpWndClass->lpfnWndProc = CustomWndProc;
-    return oRegisterClassExW(lpWndClass);
+    if (!IsValueIntAtom(DWORD(lpWndClass->lpszClassName))) { // argument is a class name
+        if (IsSystemClassNameW(lpWndClass->lpszClassName)) { // skip system classes like buttons, common controls, etc.
+            return oRegisterClassExW(lpWndClass);
+        }
+    }
+    ULONG_PTR pWndProc = ULONG_PTR(lpWndClass->lpfnWndProc);
+    lpWndClass->lpfnWndProc = CustomWndProcW;
+    WORD wClassAtom = oRegisterClassExW(lpWndClass);
+    if (wClassAtom != 0)
+    {
+        WndProcList.emplace_back(wClassAtom, pWndProc);
+    }
+    return wClassAtom;
+}
+
+typedef HWND(__stdcall* GetForegroundWindow_fn)(void);
+GetForegroundWindow_fn oGetForegroundWindow = NULL;
+
+HWND __stdcall hk_GetForegroundWindow()
+{
+    if (g_hFocusWindow && IsWindow(g_hFocusWindow))
+        return g_hFocusWindow;
+    return oGetForegroundWindow();
+}
+
+typedef HWND(__stdcall* GetActiveWindow_fn)(void);
+GetActiveWindow_fn oGetActiveWindow = NULL;
+
+HWND __stdcall hk_GetActiveWindow(void)
+{
+    HWND hWndActive = oGetActiveWindow();
+    if (g_hFocusWindow && hWndActive == NULL && IsWindow(g_hFocusWindow))
+    {
+        if (GetCurrentThreadId() == GetWindowThreadProcessId(g_hFocusWindow, NULL))
+            return g_hFocusWindow;
+    }
+    return hWndActive;
+}
+
+typedef HWND(__stdcall* GetFocus_fn)(void);
+GetFocus_fn oGetFocus = NULL;
+
+HWND __stdcall hk_GetFocus(void)
+{
+    HWND hWndFocus = oGetFocus();
+    if (g_hFocusWindow && hWndFocus == NULL && IsWindow(g_hFocusWindow))
+    {
+        if (GetCurrentThreadId() == GetWindowThreadProcessId(g_hFocusWindow, NULL))
+            return g_hFocusWindow;
+    }
+    return hWndFocus;
+}
+
+typedef HMODULE(__stdcall* LoadLibraryA_fn)(LPCSTR lpLibFileName);
+LoadLibraryA_fn oLoadLibraryA;
+
+HMODULE __stdcall hk_LoadLibraryA(LPCSTR lpLibFileName)
+{
+    HMODULE hmod = oLoadLibraryA(lpLibFileName);
+    if (hmod)
+    {
+        HookModule(hmod);
+    }
+    return hmod;
+}
+
+typedef HMODULE(__stdcall* LoadLibraryW_fn)(LPCWSTR lpLibFileName);
+LoadLibraryW_fn oLoadLibraryW;
+
+HMODULE __stdcall hk_LoadLibraryW(LPCWSTR lpLibFileName)
+{
+    HMODULE hmod = oLoadLibraryW(lpLibFileName);
+    if (hmod)
+    {
+        HookModule(hmod);
+    }
+    return hmod;
+}
+
+typedef HMODULE(__stdcall* LoadLibraryExA_fn)(LPCSTR lpLibFileName, HANDLE hFile, DWORD dwFlags);
+LoadLibraryExA_fn oLoadLibraryExA;
+
+HMODULE __stdcall hk_LoadLibraryExA(LPCSTR lpLibFileName, HANDLE hFile, DWORD dwFlags)
+{
+    HMODULE hmod = oLoadLibraryExA(lpLibFileName, hFile, dwFlags);
+    if (hmod && ((dwFlags & (LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE | LOAD_LIBRARY_AS_IMAGE_RESOURCE)) == 0))
+    {
+        HookModule(hmod);
+    }
+    return hmod;
+}
+
+typedef HMODULE(__stdcall* LoadLibraryExW_fn)(LPCWSTR lpLibFileName, HANDLE hFile, DWORD dwFlags);
+LoadLibraryExW_fn oLoadLibraryExW;
+
+HMODULE __stdcall hk_LoadLibraryExW(LPCWSTR lpLibFileName, HANDLE hFile, DWORD dwFlags)
+{
+    HMODULE hmod = oLoadLibraryExW(lpLibFileName, hFile, dwFlags);
+    if (hmod && ((dwFlags & (LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE | LOAD_LIBRARY_AS_IMAGE_RESOURCE)) == 0))
+    {
+        HookModule(hmod);
+    }
+    return hmod;
+}
+
+typedef BOOL(__stdcall* FreeLibrary_fn)(HMODULE hLibModule);
+FreeLibrary_fn oFreeLibrary;
+
+BOOL __stdcall hk_FreeLibrary(HMODULE hLibModule)
+{
+    if (hLibModule == g_hWrapperModule)
+        return TRUE; // We will stay in memory, thank you very much
+
+    return oFreeLibrary(hLibModule);
+}
+
+FARPROC __stdcall hk_GetProcAddress(HMODULE hModule, LPCSTR lpProcName)
+{
+    if (!lstrcmpA(lpProcName, "RegisterClassA"))
+    {
+        if (oRegisterClassA == NULL)
+            oRegisterClassA = (RegisterClassA_fn)GetProcAddress(hModule, lpProcName);
+        return (FARPROC)hk_RegisterClassA;
+    }
+    if (!lstrcmpA(lpProcName, "RegisterClassW"))
+    {
+        if (oRegisterClassW == NULL)
+            oRegisterClassW = (RegisterClassW_fn)GetProcAddress(hModule, lpProcName);
+        return (FARPROC)hk_RegisterClassW;
+    }
+    if (!lstrcmpA(lpProcName, "RegisterClassExA"))
+    {
+        if (oRegisterClassExA == NULL)
+            oRegisterClassExA = (RegisterClassExA_fn)GetProcAddress(hModule, lpProcName);
+        return (FARPROC)hk_RegisterClassExA;
+    }
+    if (!lstrcmpA(lpProcName, "RegisterClassExW"))
+    {
+        if (oRegisterClassExW == NULL)
+            oRegisterClassExW = (RegisterClassExW_fn)GetProcAddress(hModule, lpProcName);
+        return (FARPROC)hk_RegisterClassExW;
+    }
+    if (!lstrcmpA(lpProcName, "GetForegroundWindow"))
+    {
+        if (oGetForegroundWindow == NULL)
+            oGetForegroundWindow = (GetForegroundWindow_fn)GetProcAddress(hModule, lpProcName);
+        return (FARPROC)hk_GetForegroundWindow;
+    }
+    if (!lstrcmpA(lpProcName, "GetActiveWindow"))
+    {
+        if (oGetActiveWindow == NULL)
+            oGetActiveWindow = (GetActiveWindow_fn)GetProcAddress(hModule, lpProcName);
+        return (FARPROC)hk_GetActiveWindow;
+    }
+    if (!lstrcmpA(lpProcName, "GetFocus"))
+    {
+        if (oGetFocus == NULL)
+            oGetFocus = (GetFocus_fn)GetProcAddress(hModule, lpProcName);
+        return (FARPROC)hk_GetFocus;
+    }
+    if (!lstrcmpA(lpProcName, "LoadLibraryA"))
+    {
+        if (oLoadLibraryA == NULL)
+            oLoadLibraryA = (LoadLibraryA_fn)GetProcAddress(hModule, lpProcName);
+        return (FARPROC)hk_LoadLibraryA;
+    }
+    if (!lstrcmpA(lpProcName, "LoadLibraryW"))
+    {
+        if (oLoadLibraryW == NULL)
+            oLoadLibraryW = (LoadLibraryW_fn)GetProcAddress(hModule, lpProcName);
+        return (FARPROC)hk_LoadLibraryW;
+    }
+    if (!lstrcmpA(lpProcName, "LoadLibraryExA"))
+    {
+        if (oLoadLibraryExA == NULL)
+            oLoadLibraryExA = (LoadLibraryExA_fn)GetProcAddress(hModule, lpProcName);
+        return (FARPROC)hk_LoadLibraryExA;
+    }
+    if (!lstrcmpA(lpProcName, "LoadLibraryExW"))
+    {
+        if (oLoadLibraryExW == NULL)
+            oLoadLibraryExW = (LoadLibraryExW_fn)GetProcAddress(hModule, lpProcName);
+        return (FARPROC)hk_LoadLibraryExW;
+    }
+    if (!lstrcmpA(lpProcName, "FreeLibrary"))
+    {
+        if (oFreeLibrary == NULL)
+            oFreeLibrary = (FreeLibrary_fn)GetProcAddress(hModule, lpProcName);
+        return (FARPROC)hk_FreeLibrary;
+    }
+
+    return GetProcAddress(hModule, lpProcName);
+}
+
+void HookModule(HMODULE hmod)
+{
+    char modpath[MAX_PATH + 1];
+    if (hmod == g_hWrapperModule) // Yeah, let's not go and hook ourselves
+        return;
+    if (GetModuleFileNameA(hmod, modpath, MAX_PATH)) {
+        if (!_strnicmp(modpath, WinDir, strlen(WinDir))) { // skip system modules
+            return;
+        }
+    }
+    if (oRegisterClassA == NULL)
+        oRegisterClassA = (RegisterClassA_fn)Iat_hook::detour_iat_ptr("RegisterClassA", (void*)hk_RegisterClassA, hmod);
+    else
+        Iat_hook::detour_iat_ptr("RegisterClassA", (void*)hk_RegisterClassA, hmod);
+
+    if (oRegisterClassW == NULL)
+        oRegisterClassW = (RegisterClassW_fn)Iat_hook::detour_iat_ptr("RegisterClassW", (void*)hk_RegisterClassW, hmod);
+    else
+        Iat_hook::detour_iat_ptr("RegisterClassW", (void*)hk_RegisterClassW, hmod);
+
+    if (oRegisterClassExA == NULL)
+        oRegisterClassExA = (RegisterClassExA_fn)Iat_hook::detour_iat_ptr("RegisterClassExA", (void*)hk_RegisterClassExA, hmod);
+    else
+        Iat_hook::detour_iat_ptr("RegisterClassExA", (void*)hk_RegisterClassExA, hmod);
+
+    if (oRegisterClassExW == NULL)
+        oRegisterClassExW = (RegisterClassExW_fn)Iat_hook::detour_iat_ptr("RegisterClassExW", (void*)hk_RegisterClassExW, hmod);
+    else
+        Iat_hook::detour_iat_ptr("RegisterClassExW", (void*)hk_RegisterClassExW, hmod);
+
+    if (oGetForegroundWindow == NULL)
+        oGetForegroundWindow = (GetForegroundWindow_fn)Iat_hook::detour_iat_ptr("GetForegroundWindow", (void*)hk_GetForegroundWindow, hmod);
+    else
+        Iat_hook::detour_iat_ptr("GetForegroundWindow", (void*)hk_GetForegroundWindow, hmod);
+
+    if (oGetActiveWindow == NULL)
+        oGetActiveWindow = (GetActiveWindow_fn)Iat_hook::detour_iat_ptr("GetActiveWindow", (void*)hk_GetActiveWindow, hmod);
+    else
+        Iat_hook::detour_iat_ptr("GetActiveWindow", (void*)hk_GetActiveWindow, hmod);
+
+    if (oGetFocus == NULL)
+        oGetFocus = (GetFocus_fn)Iat_hook::detour_iat_ptr("GetFocus", (void*)hk_GetFocus, hmod);
+    else
+        Iat_hook::detour_iat_ptr("GetFocus", (void*)hk_GetFocus, hmod);
+
+    if (oLoadLibraryA == NULL)
+        oLoadLibraryA = (LoadLibraryA_fn)Iat_hook::detour_iat_ptr("LoadLibraryA", (void*)hk_LoadLibraryA, hmod);
+    else
+        Iat_hook::detour_iat_ptr("LoadLibraryA", (void*)hk_LoadLibraryA, hmod);
+
+    if (oLoadLibraryW == NULL)
+        oLoadLibraryW = (LoadLibraryW_fn)Iat_hook::detour_iat_ptr("LoadLibraryW", (void*)hk_LoadLibraryW, hmod);
+    else
+        Iat_hook::detour_iat_ptr("LoadLibraryW", (void*)hk_LoadLibraryW, hmod);
+
+    if (oLoadLibraryExA == NULL)
+        oLoadLibraryExA = (LoadLibraryExA_fn)Iat_hook::detour_iat_ptr("LoadLibraryExA", (void*)hk_LoadLibraryExA, hmod);
+    else
+        Iat_hook::detour_iat_ptr("LoadLibraryExA", (void*)hk_LoadLibraryExA, hmod);
+
+    if (oLoadLibraryExW == NULL)
+        oLoadLibraryExW = (LoadLibraryExW_fn)Iat_hook::detour_iat_ptr("LoadLibraryExW", (void*)hk_LoadLibraryExW, hmod);
+    else
+        Iat_hook::detour_iat_ptr("LoadLibraryExW", (void*)hk_LoadLibraryExW, hmod);
+
+    if (oFreeLibrary == NULL)
+        oFreeLibrary = (FreeLibrary_fn)Iat_hook::detour_iat_ptr("FreeLibrary", (void*)hk_FreeLibrary, hmod);
+    else
+        Iat_hook::detour_iat_ptr("FreeLibrary", (void*)hk_FreeLibrary, hmod);
+
+    Iat_hook::detour_iat_ptr("GetProcAddress", (void*)hk_GetProcAddress, hmod);
+}
+
+void HookImportedModules()
+{
+    HMODULE hModule;
+    HMODULE hm;
+
+    hModule = GetModuleHandle(0);
+
+    PIMAGE_DOS_HEADER img_dos_headers = (PIMAGE_DOS_HEADER)hModule;
+    PIMAGE_NT_HEADERS img_nt_headers = (PIMAGE_NT_HEADERS)((BYTE*)img_dos_headers + img_dos_headers->e_lfanew);
+    PIMAGE_IMPORT_DESCRIPTOR img_import_desc = (PIMAGE_IMPORT_DESCRIPTOR)((BYTE*)img_dos_headers + img_nt_headers->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+    if (img_dos_headers->e_magic != IMAGE_DOS_SIGNATURE)
+        return;
+
+    for (IMAGE_IMPORT_DESCRIPTOR* iid = img_import_desc; iid->Name != 0; iid++) {
+        char* mod_name = (char*)((size_t*)(iid->Name + (size_t)hModule));
+        hm = GetModuleHandleA(mod_name);
+        if (hm) {
+            HookModule(hm);
+        }
+    }
 }
 
 bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
 {
-    static HMODULE d3d9dll = nullptr;
-
     switch (dwReason)
     {
         case DLL_PROCESS_ATTACH:
         {
+            g_hWrapperModule = hModule;
+        
             // Load dll
             char path[MAX_PATH];
             GetSystemDirectoryA(path, MAX_PATH);
@@ -552,8 +933,7 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
                 HMODULE hm = NULL;
                 GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)&Direct3DCreate9, &hm);
                 GetModuleFileNameA(hm, path, sizeof(path));
-                *strrchr(path, '\\') = '\0';
-                strcat_s(path, "\\d3d9.ini");
+                strcpy(strrchr(path, '\\'), "\\d3d9.ini");
                 bForceWindowedMode = GetPrivateProfileInt("MAIN", "ForceWindowedMode", 0, path) != 0;
                 fFPSLimit = static_cast<float>(GetPrivateProfileInt("MAIN", "FPSLimit", 0, path));
                 nFullScreenRefreshRateInHz = GetPrivateProfileInt("MAIN", "FullScreenRefreshRateInHz", 0, path);
@@ -575,21 +955,57 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
                 }
                 else
                     mFPSLimitMode = FrameLimiter::FPSLimitMode::FPS_NONE;
-                
+
                 if (bDoNotNotifyOnTaskSwitch)
                 {
+                    GetSystemWindowsDirectoryA(WinDir, MAX_PATH);
+
                     oRegisterClassA = (RegisterClassA_fn)Iat_hook::detour_iat_ptr("RegisterClassA", (void*)hk_RegisterClassA);
                     oRegisterClassW = (RegisterClassW_fn)Iat_hook::detour_iat_ptr("RegisterClassW", (void*)hk_RegisterClassW);
                     oRegisterClassExA = (RegisterClassExA_fn)Iat_hook::detour_iat_ptr("RegisterClassExA", (void*)hk_RegisterClassExA);
                     oRegisterClassExW = (RegisterClassExW_fn)Iat_hook::detour_iat_ptr("RegisterClassExW", (void*)hk_RegisterClassExW);
-                    HMODULE user32 = GetModuleHandleA("user32.dll");
-                    if (user32)
-                    {
-                        Iat_hook::detour_iat_ptr("RegisterClassA", (void*)hk_RegisterClassA, user32);
-                        Iat_hook::detour_iat_ptr("RegisterClassW", (void*)hk_RegisterClassW, user32);
-                        Iat_hook::detour_iat_ptr("RegisterClassExA", (void*)hk_RegisterClassExA, user32);
-                        Iat_hook::detour_iat_ptr("RegisterClassExW", (void*)hk_RegisterClassExW, user32);
+                    oGetForegroundWindow = (GetForegroundWindow_fn)Iat_hook::detour_iat_ptr("GetForegroundWindow", (void*)hk_GetForegroundWindow);
+                    oGetActiveWindow = (GetActiveWindow_fn)Iat_hook::detour_iat_ptr("GetActiveWindow", (void*)hk_GetActiveWindow);
+                    oGetFocus = (GetFocus_fn)Iat_hook::detour_iat_ptr("GetFocus", (void*)hk_GetFocus);
+                    oLoadLibraryA = (LoadLibraryA_fn)Iat_hook::detour_iat_ptr("LoadLibraryA", (void*)hk_LoadLibraryA);
+                    oLoadLibraryW = (LoadLibraryW_fn)Iat_hook::detour_iat_ptr("LoadLibraryW", (void*)hk_LoadLibraryW);
+                    oLoadLibraryExA = (LoadLibraryExA_fn)Iat_hook::detour_iat_ptr("LoadLibraryExA", (void*)hk_LoadLibraryExA);
+                    oLoadLibraryExW = (LoadLibraryExW_fn)Iat_hook::detour_iat_ptr("LoadLibraryExW", (void*)hk_LoadLibraryExW);
+                    oFreeLibrary = (FreeLibrary_fn)Iat_hook::detour_iat_ptr("FreeLibrary", (void*)hk_FreeLibrary);
+
+                    Iat_hook::detour_iat_ptr("GetProcAddress", (void*)hk_GetProcAddress);
+                    Iat_hook::detour_iat_ptr("GetProcAddress", (void*)hk_GetProcAddress, d3d9dll);
+
+                    if (oGetForegroundWindow == NULL)
+                        oGetForegroundWindow = (GetForegroundWindow_fn)Iat_hook::detour_iat_ptr("GetForegroundWindow", (void*)hk_GetForegroundWindow, d3d9dll);
+                    else
+                        Iat_hook::detour_iat_ptr("GetForegroundWindow", (void*)hk_GetForegroundWindow, d3d9dll);
+
+                    HMODULE ole32 = GetModuleHandleA("ole32.dll");
+                    if (ole32) {
+                        if (oRegisterClassA == NULL)
+                            oRegisterClassA = (RegisterClassA_fn)Iat_hook::detour_iat_ptr("RegisterClassA", (void*)hk_RegisterClassA, ole32);
+                        else
+                            Iat_hook::detour_iat_ptr("RegisterClassA", (void*)hk_RegisterClassA, ole32);
+                        if (oRegisterClassW == NULL)
+                            oRegisterClassW = (RegisterClassW_fn)Iat_hook::detour_iat_ptr("RegisterClassW", (void*)hk_RegisterClassW, ole32);
+                        else
+                            Iat_hook::detour_iat_ptr("RegisterClassW", (void*)hk_RegisterClassW, ole32);
+                        if (oRegisterClassExA == NULL)
+                            oRegisterClassExA = (RegisterClassExA_fn)Iat_hook::detour_iat_ptr("RegisterClassExA", (void*)hk_RegisterClassExA, ole32);
+                        else
+                            Iat_hook::detour_iat_ptr("RegisterClassExA", (void*)hk_RegisterClassExA, ole32);
+                        if (oRegisterClassExW == NULL)
+                            oRegisterClassExW = (RegisterClassExW_fn)Iat_hook::detour_iat_ptr("RegisterClassExW", (void*)hk_RegisterClassExW, ole32);
+                        else
+                            Iat_hook::detour_iat_ptr("RegisterClassExW", (void*)hk_RegisterClassExW, ole32);
+                        if (oGetActiveWindow == NULL)
+                            oGetActiveWindow = (GetActiveWindow_fn)Iat_hook::detour_iat_ptr("GetActiveWindow", (void*)hk_GetActiveWindow, ole32);
+                        else
+                            Iat_hook::detour_iat_ptr("GetActiveWindow", (void*)hk_GetActiveWindow, ole32);
                     }
+
+                    HookImportedModules();
                 }
             }
         }
@@ -604,7 +1020,6 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
         }
         break;
     }
-
     return true;
 }
 
