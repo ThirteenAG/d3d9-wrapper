@@ -725,77 +725,83 @@ BOOL __stdcall hk_FreeLibrary(HMODULE hLibModule)
 
 FARPROC __stdcall hk_GetProcAddress(HMODULE hModule, LPCSTR lpProcName)
 {
-    if (!lstrcmpA(lpProcName, "RegisterClassA"))
+    __try
     {
-        if (oRegisterClassA == NULL)
-            oRegisterClassA = (RegisterClassA_fn)GetProcAddress(hModule, lpProcName);
-        return (FARPROC)hk_RegisterClassA;
+        if (!lstrcmpA(lpProcName, "RegisterClassA"))
+        {
+            if (oRegisterClassA == NULL)
+                oRegisterClassA = (RegisterClassA_fn)GetProcAddress(hModule, lpProcName);
+            return (FARPROC)hk_RegisterClassA;
+        }
+        if (!lstrcmpA(lpProcName, "RegisterClassW"))
+        {
+            if (oRegisterClassW == NULL)
+                oRegisterClassW = (RegisterClassW_fn)GetProcAddress(hModule, lpProcName);
+            return (FARPROC)hk_RegisterClassW;
+        }
+        if (!lstrcmpA(lpProcName, "RegisterClassExA"))
+        {
+            if (oRegisterClassExA == NULL)
+                oRegisterClassExA = (RegisterClassExA_fn)GetProcAddress(hModule, lpProcName);
+            return (FARPROC)hk_RegisterClassExA;
+        }
+        if (!lstrcmpA(lpProcName, "RegisterClassExW"))
+        {
+            if (oRegisterClassExW == NULL)
+                oRegisterClassExW = (RegisterClassExW_fn)GetProcAddress(hModule, lpProcName);
+            return (FARPROC)hk_RegisterClassExW;
+        }
+        if (!lstrcmpA(lpProcName, "GetForegroundWindow"))
+        {
+            if (oGetForegroundWindow == NULL)
+                oGetForegroundWindow = (GetForegroundWindow_fn)GetProcAddress(hModule, lpProcName);
+            return (FARPROC)hk_GetForegroundWindow;
+        }
+        if (!lstrcmpA(lpProcName, "GetActiveWindow"))
+        {
+            if (oGetActiveWindow == NULL)
+                oGetActiveWindow = (GetActiveWindow_fn)GetProcAddress(hModule, lpProcName);
+            return (FARPROC)hk_GetActiveWindow;
+        }
+        if (!lstrcmpA(lpProcName, "GetFocus"))
+        {
+            if (oGetFocus == NULL)
+                oGetFocus = (GetFocus_fn)GetProcAddress(hModule, lpProcName);
+            return (FARPROC)hk_GetFocus;
+        }
+        if (!lstrcmpA(lpProcName, "LoadLibraryA"))
+        {
+            if (oLoadLibraryA == NULL)
+                oLoadLibraryA = (LoadLibraryA_fn)GetProcAddress(hModule, lpProcName);
+            return (FARPROC)hk_LoadLibraryA;
+        }
+        if (!lstrcmpA(lpProcName, "LoadLibraryW"))
+        {
+            if (oLoadLibraryW == NULL)
+                oLoadLibraryW = (LoadLibraryW_fn)GetProcAddress(hModule, lpProcName);
+            return (FARPROC)hk_LoadLibraryW;
+        }
+        if (!lstrcmpA(lpProcName, "LoadLibraryExA"))
+        {
+            if (oLoadLibraryExA == NULL)
+                oLoadLibraryExA = (LoadLibraryExA_fn)GetProcAddress(hModule, lpProcName);
+            return (FARPROC)hk_LoadLibraryExA;
+        }
+        if (!lstrcmpA(lpProcName, "LoadLibraryExW"))
+        {
+            if (oLoadLibraryExW == NULL)
+                oLoadLibraryExW = (LoadLibraryExW_fn)GetProcAddress(hModule, lpProcName);
+            return (FARPROC)hk_LoadLibraryExW;
+        }
+        if (!lstrcmpA(lpProcName, "FreeLibrary"))
+        {
+            if (oFreeLibrary == NULL)
+                oFreeLibrary = (FreeLibrary_fn)GetProcAddress(hModule, lpProcName);
+            return (FARPROC)hk_FreeLibrary;
+        }
     }
-    if (!lstrcmpA(lpProcName, "RegisterClassW"))
+    __except ((GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION) ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH)
     {
-        if (oRegisterClassW == NULL)
-            oRegisterClassW = (RegisterClassW_fn)GetProcAddress(hModule, lpProcName);
-        return (FARPROC)hk_RegisterClassW;
-    }
-    if (!lstrcmpA(lpProcName, "RegisterClassExA"))
-    {
-        if (oRegisterClassExA == NULL)
-            oRegisterClassExA = (RegisterClassExA_fn)GetProcAddress(hModule, lpProcName);
-        return (FARPROC)hk_RegisterClassExA;
-    }
-    if (!lstrcmpA(lpProcName, "RegisterClassExW"))
-    {
-        if (oRegisterClassExW == NULL)
-            oRegisterClassExW = (RegisterClassExW_fn)GetProcAddress(hModule, lpProcName);
-        return (FARPROC)hk_RegisterClassExW;
-    }
-    if (!lstrcmpA(lpProcName, "GetForegroundWindow"))
-    {
-        if (oGetForegroundWindow == NULL)
-            oGetForegroundWindow = (GetForegroundWindow_fn)GetProcAddress(hModule, lpProcName);
-        return (FARPROC)hk_GetForegroundWindow;
-    }
-    if (!lstrcmpA(lpProcName, "GetActiveWindow"))
-    {
-        if (oGetActiveWindow == NULL)
-            oGetActiveWindow = (GetActiveWindow_fn)GetProcAddress(hModule, lpProcName);
-        return (FARPROC)hk_GetActiveWindow;
-    }
-    if (!lstrcmpA(lpProcName, "GetFocus"))
-    {
-        if (oGetFocus == NULL)
-            oGetFocus = (GetFocus_fn)GetProcAddress(hModule, lpProcName);
-        return (FARPROC)hk_GetFocus;
-    }
-    if (!lstrcmpA(lpProcName, "LoadLibraryA"))
-    {
-        if (oLoadLibraryA == NULL)
-            oLoadLibraryA = (LoadLibraryA_fn)GetProcAddress(hModule, lpProcName);
-        return (FARPROC)hk_LoadLibraryA;
-    }
-    if (!lstrcmpA(lpProcName, "LoadLibraryW"))
-    {
-        if (oLoadLibraryW == NULL)
-            oLoadLibraryW = (LoadLibraryW_fn)GetProcAddress(hModule, lpProcName);
-        return (FARPROC)hk_LoadLibraryW;
-    }
-    if (!lstrcmpA(lpProcName, "LoadLibraryExA"))
-    {
-        if (oLoadLibraryExA == NULL)
-            oLoadLibraryExA = (LoadLibraryExA_fn)GetProcAddress(hModule, lpProcName);
-        return (FARPROC)hk_LoadLibraryExA;
-    }
-    if (!lstrcmpA(lpProcName, "LoadLibraryExW"))
-    {
-        if (oLoadLibraryExW == NULL)
-            oLoadLibraryExW = (LoadLibraryExW_fn)GetProcAddress(hModule, lpProcName);
-        return (FARPROC)hk_LoadLibraryExW;
-    }
-    if (!lstrcmpA(lpProcName, "FreeLibrary"))
-    {
-        if (oFreeLibrary == NULL)
-            oFreeLibrary = (FreeLibrary_fn)GetProcAddress(hModule, lpProcName);
-        return (FARPROC)hk_FreeLibrary;
     }
 
     return GetProcAddress(hModule, lpProcName);
@@ -890,7 +896,8 @@ void HookImportedModules()
     for (IMAGE_IMPORT_DESCRIPTOR* iid = img_import_desc; iid->Name != 0; iid++) {
         char* mod_name = (char*)((size_t*)(iid->Name + (size_t)hModule));
         hm = GetModuleHandleA(mod_name);
-        if (hm) {
+        // ual check
+        if (hm && !(GetProcAddress(hm, "DirectInput8Create") != NULL && GetProcAddress(hm, "DirectSoundCreate8") != NULL && GetProcAddress(hm, "InternetOpenA") != NULL)) {
             HookModule(hm);
         }
     }
