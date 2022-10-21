@@ -65,16 +65,18 @@ namespace Iat_hook
                 }
                 for (int func_idx = 0; *(func_idx + (void**)(iid->FirstThunk + (size_t)hModule)) != NULL; func_idx++) {
                     size_t mod_func_ptr_ord = (size_t)(*(func_idx + (size_t*)(iid->OriginalFirstThunk + (size_t)hModule)));
-                    char* mod_func_name = (char*)(mod_func_ptr_ord + (size_t)hModule + 2);
-                    const intptr_t nmod_func_name = (intptr_t)mod_func_name;
-                    if (nmod_func_name >= 0) {
-                        if (function != NULL && !lstrcmpA(function, mod_func_name))
-                            return func_idx + (void**)(iid->FirstThunk + (size_t)hModule);
-                    }
-                    else if (IMAGE_SNAP_BY_ORDINAL(mod_func_ptr_ord))
+                    if (IMAGE_SNAP_BY_ORDINAL(mod_func_ptr_ord))
                     {
                         if (chModule != NULL && ordinal != 0 && (ordinal == IMAGE_ORDINAL(mod_func_ptr_ord)))
                             return func_idx + (void**)(iid->FirstThunk + (size_t)hModule);
+                    }
+                    else if (function != NULL && function[0] != 0)
+                    {
+                        char* mod_func_name = (char*)(mod_func_ptr_ord + (size_t)hModule + 2);
+                        const intptr_t nmod_func_name = (intptr_t)mod_func_name;
+                        if (nmod_func_name >= 0 && !lstrcmpA(function, mod_func_name))
+                            return func_idx + (void**)(iid->FirstThunk + (size_t)hModule);
+                        }
                     }
                 }
             }
