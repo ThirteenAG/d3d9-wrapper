@@ -293,17 +293,17 @@ int main(int argc, char **argv) {
         return pause_on_exit(1);
     }
 
-	page = VirtualAllocEx(pi.hProcess, NULL, MAX_PATH, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
-	if (!page) {
-		print_w32error("VirtualAllocEx", NULL, GetLastError());
+    page = VirtualAllocEx(pi.hProcess, NULL, MAX_PATH, MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
+    if (!page) {
+        print_w32error("VirtualAllocEx", NULL, GetLastError());
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
-		return pause_on_exit(1);
-	}
+        return pause_on_exit(1);
+    }
 
     if (!WriteProcessMemory(pi.hProcess, page, dll_path, len, NULL)) {
         print_w32error("WriteProcessMemory", NULL, GetLastError());
-        VirtualFreeEx(pi.hProcess, page, MAX_PATH, MEM_RELEASE);
+        VirtualFreeEx(pi.hProcess, page, 0, MEM_RELEASE);
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
         return pause_on_exit(1);
@@ -312,7 +312,7 @@ int main(int argc, char **argv) {
     hThread = CreateRemoteThread(pi.hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)LoadLibraryA, page, 0, NULL);
     if (!hThread) {
         print_w32error("CreateRemoteThread", NULL, GetLastError());
-        VirtualFreeEx(pi.hProcess, page, MAX_PATH, MEM_RELEASE);
+        VirtualFreeEx(pi.hProcess, page, 0, MEM_RELEASE);
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
         return pause_on_exit(1);
@@ -321,7 +321,7 @@ int main(int argc, char **argv) {
     if (WaitForSingleObject(hThread, INFINITE) == WAIT_FAILED) {
         print_w32error("WaitForSingleObject", NULL, GetLastError());
         CloseHandle(hThread);
-        VirtualFreeEx(pi.hProcess, page, MAX_PATH, MEM_RELEASE);
+        VirtualFreeEx(pi.hProcess, page, 0, MEM_RELEASE);
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
         return pause_on_exit(1);
@@ -331,14 +331,14 @@ int main(int argc, char **argv) {
 
     if (ResumeThread(pi.hThread) == -1) {
         print_w32error("ResumeThread", NULL, GetLastError());
-        VirtualFreeEx(pi.hProcess, page, MAX_PATH, MEM_RELEASE);
+        VirtualFreeEx(pi.hProcess, page, 0, MEM_RELEASE);
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
         return pause_on_exit(1);
     }
 
-    VirtualFreeEx(pi.hProcess, page, MAX_PATH, MEM_RELEASE);
+    VirtualFreeEx(pi.hProcess, page, 0, MEM_RELEASE);
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
-	return 0;
+    return 0;
 }
