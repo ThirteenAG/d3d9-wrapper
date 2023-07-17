@@ -47,6 +47,7 @@ bool bForceWindowedMode;
 bool bUsePrimaryMonitor;
 bool bCenterWindow;
 bool bBorderlessFullscreen;
+bool bWindowedReal;
 bool bAlwaysOnTop;
 bool bDoNotNotifyOnTaskSwitch;
 bool bDisplayFPSCounter;
@@ -303,6 +304,16 @@ void ForceWindowed(D3DPRESENT_PARAMETERS* pPresentationParameters, D3DDISPLAYMOD
                 uFlags |= SWP_FRAMECHANGED;
             }
             SetWindowPos(hwnd, bAlwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST, left, top, DesktopResX, DesktopResY, uFlags);
+        }
+        if (bWindowedReal)
+        {
+            if (!bCenterWindow)
+                uFlags |= SWP_NOMOVE;
+
+            SetWindowLongPtr(hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW);
+            uFlags == SWP_FRAMECHANGED | SWP_SHOWWINDOW;
+
+            SetWindowPos(hwnd, bAlwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST, left, top, pPresentationParameters->BackBufferWidth, pPresentationParameters->BackBufferHeight, uFlags);
         }
         else
         {
@@ -948,6 +959,7 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
                 bUsePrimaryMonitor = GetPrivateProfileInt("FORCEWINDOWED", "UsePrimaryMonitor", 0, path) != 0;
                 bCenterWindow = GetPrivateProfileInt("FORCEWINDOWED", "CenterWindow", 1, path) != 0;
                 bBorderlessFullscreen = GetPrivateProfileInt("FORCEWINDOWED", "BorderlessFullscreen", 0, path) != 0;
+                bWindowedReal = GetPrivateProfileInt("FORCEWINDOWED", "WindowedMode", 0, path) != 0;
                 bAlwaysOnTop = GetPrivateProfileInt("FORCEWINDOWED", "AlwaysOnTop", 0, path) != 0;
                 bDoNotNotifyOnTaskSwitch = GetPrivateProfileInt("FORCEWINDOWED", "DoNotNotifyOnTaskSwitch", 0, path) != 0;
 
