@@ -43,7 +43,7 @@ HWND g_hFocusWindow = NULL;
 HMODULE g_hWrapperModule = NULL;
 
 HMODULE d3d9dll = NULL;
-HMODULE QoSConsole = NULL;
+HMODULE testdll = NULL;
 
 bool bForceWindowedMode;
 bool bUsePrimaryMonitor;
@@ -921,7 +921,7 @@ DWORD dllBase = reinterpret_cast<DWORD>(GetModuleHandleA("jb_mp_s.dll")); //obvi
 
 void ShowDevConsole()
 {
-    std::this_thread::sleep_for(std::chrono::seconds(2));
+    std::this_thread::sleep_for(std::chrono::seconds(1));
     //FPS unlock?
     //memset((GetModuleHandleA("jb_mp_s.dll") + 0x711AF8 + 0x10), 0x90, 2);
     reinterpret_cast<int(__cdecl*)()>(dllBase + 0x2C4230)();
@@ -1022,56 +1022,62 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
             strcat_s(path, "\\d3d9.dll");
             d3d9dll = LoadLibraryA(path);
 
-            // Store the module handle for later use
-            DisableThreadLibraryCalls(hModule);
-            // Register the window class
-            WNDCLASSEXW wcex;
-            wcex.cbSize = sizeof(WNDCLASSEX);
-            wcex.style = CS_HREDRAW | CS_VREDRAW;
-            wcex.lpfnWndProc = WndProc;
-            wcex.cbClsExtra = 0;
-            wcex.cbWndExtra = 0;
-            wcex.hInstance = hModule;
-            wcex.hIcon = nullptr;
-            wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
-            wcex.hbrBackground = nullptr;
-            wcex.lpszMenuName = nullptr;
-            wcex.lpszClassName = L"QoS Splash Screen";
-            wcex.hIconSm = nullptr;
 
-            if (!RegisterClassExW(&wcex)) {
-                MessageBoxW(nullptr, L"Failed to register window class.", L"Error", MB_OK | MB_ICONERROR);
-                return FALSE;
+            HMODULE testdll = LoadLibrary("test.dll");
+            if (testdll == NULL) {
+                // Handle error when loading DLL
+                MessageBoxA(NULL, "Failed to load test.dll.", "[Quantum of Solace] Client Error!", MB_OK | MB_ICONERROR);
+                exit(0);
             }
-
-            // Create the splash window
-            HWND hWndSplash = CreateWindowExW(0, wcex.lpszClassName, nullptr, WS_OVERLAPPEDWINDOW,
-                CW_USEDEFAULT, CW_USEDEFAULT, 300, 200, nullptr, nullptr, hModule, nullptr);
-            if (!hWndSplash) {
-                DWORD error = GetLastError();
-                LPWSTR errorMessage = nullptr;
-                FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-                    nullptr, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-                    reinterpret_cast<LPWSTR>(&errorMessage), 0, nullptr);
-                MessageBoxW(nullptr, errorMessage ? errorMessage : L"Failed to create window.", L"Error", MB_OK | MB_ICONERROR);
-                LocalFree(errorMessage);
-                return FALSE;
-            }
-
-            // Show the window
-            ShowWindow(hWndSplash, SW_SHOWNORMAL);
-            UpdateWindow(hWndSplash);
-            // Wait for a few seconds (optional)
-            Sleep(3000);
-
-            // Destroy the splash window
-            DestroyWindow(hWndSplash);
 
 
             if (d3d9dll)
             {
 
-                
+                // Setup for splashwindow
+                DisableThreadLibraryCalls(hModule);
+                // Register the window class
+                WNDCLASSEXW wcex;
+                wcex.cbSize = sizeof(WNDCLASSEX);
+                wcex.style = CS_HREDRAW | CS_VREDRAW;
+                wcex.lpfnWndProc = WndProc;
+                wcex.cbClsExtra = 0;
+                wcex.cbWndExtra = 0;
+                wcex.hInstance = hModule;
+                wcex.hIcon = nullptr;
+                wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
+                wcex.hbrBackground = nullptr;
+                wcex.lpszMenuName = nullptr;
+                wcex.lpszClassName = L"QoS Splash Screen";
+                wcex.hIconSm = nullptr;
+
+                if (!RegisterClassExW(&wcex)) {
+                    MessageBoxW(nullptr, L"Failed to register window class.", L"Error", MB_OK | MB_ICONERROR);
+                    return FALSE;
+                }
+
+                // Create the splash window
+                HWND hWndSplash = CreateWindowExW(0, wcex.lpszClassName, nullptr, WS_OVERLAPPEDWINDOW,
+                    CW_USEDEFAULT, CW_USEDEFAULT, 300, 200, nullptr, nullptr, hModule, nullptr);
+                if (!hWndSplash) {
+                    DWORD error = GetLastError();
+                    LPWSTR errorMessage = nullptr;
+                    FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                        nullptr, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                        reinterpret_cast<LPWSTR>(&errorMessage), 0, nullptr);
+                    MessageBoxW(nullptr, errorMessage ? errorMessage : L"Failed to create window.", L"Error", MB_OK | MB_ICONERROR);
+                    LocalFree(errorMessage);
+                    return FALSE;
+                }
+
+                // Show the window
+                ShowWindow(hWndSplash, SW_SHOWNORMAL);
+                UpdateWindow(hWndSplash);
+                // Wait for a few seconds (optional)
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+
+                // Destroy the splash window
+                DestroyWindow(hWndSplash);
 
                 // Get function addresses
                 m_pDirect3DShaderValidatorCreate9 = (Direct3DShaderValidatorCreate9Proc)GetProcAddress(d3d9dll, "Direct3DShaderValidatorCreate9");
