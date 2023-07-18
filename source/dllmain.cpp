@@ -18,7 +18,8 @@
 #include "d3dx9.h"
 #include "iathook.h"
 #include "helpers.h"
-
+#include <chrono>   // For std::chrono
+#include <thread>   // For std::this_thread
 #pragma comment(lib, "d3dx9.lib")
 #pragma comment(lib, "winmm.lib") // needed for timeBeginPeriod()/timeEndPeriod()
 
@@ -42,6 +43,7 @@ HWND g_hFocusWindow = NULL;
 HMODULE g_hWrapperModule = NULL;
 
 HMODULE d3d9dll = NULL;
+HMODULE QoSConsole = NULL;
 
 bool bForceWindowedMode;
 bool bUsePrimaryMonitor;
@@ -51,6 +53,7 @@ bool bWindowedReal;
 bool bAlwaysOnTop;
 bool bDoNotNotifyOnTaskSwitch;
 bool bDisplayFPSCounter;
+bool bDevConsole;
 float fFPSLimit;
 int nFullScreenRefreshRateInHz;
 
@@ -914,6 +917,95 @@ void HookImportedModules()
     }
 }
 
+DWORD dllBase = reinterpret_cast<DWORD>(GetModuleHandleA("jb_mp_s.dll")); //obviously remove this if its not for QoS
+
+void ShowDevConsole()
+{
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    //FPS unlock?
+    //memset((GetModuleHandleA("jb_mp_s.dll") + 0x711AF8 + 0x10), 0x90, 2);
+    reinterpret_cast<int(__cdecl*)()>(dllBase + 0x2C4230)();
+
+    MSG m;
+    while (GetMessage(&m, nullptr, 0, 0)) {
+        TranslateMessage(&m);
+        DispatchMessage(&m);
+    }
+}
+
+LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    static HBITMAP hSplashImage = nullptr;
+
+    switch (message) {
+    case WM_CREATE: {
+        hSplashImage = static_cast<HBITMAP>(LoadImageW(nullptr, L"splash.bmp", IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION | LR_DEFAULTSIZE));
+        if (!hSplashImage) {
+            MessageBoxW(nullptr, L"Failed to load BMP image from file.", L"Error", MB_OK | MB_ICONERROR);
+            return -1;
+        }
+
+        // Get the dimensions of the BMP image
+        BITMAP bm;
+        GetObject(hSplashImage, sizeof(BITMAP), &bm);
+
+        // Get the screen dimensions
+        int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+        int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+
+        // Adjust window size based on image dimensions
+        RECT rc = { 0, 0, bm.bmWidth, bm.bmHeight };
+        int width = rc.right - rc.left;
+        int height = rc.bottom - rc.top;
+
+        // Calculate the position to center the window
+        int x = (screenWidth - width) / 2;
+        int y = (screenHeight - height) / 2;
+
+        // Set the window style and position
+        SetWindowLong(hWnd, GWL_STYLE, WS_POPUP | WS_SYSMENU);
+        SetWindowPos(hWnd, HWND_TOPMOST, x, y, width, height, 0);
+
+        break;
+    }
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hWnd, &ps);
+
+        if (hSplashImage) {
+            // Draw the BMP image
+            HDC hdcMem = CreateCompatibleDC(hdc);
+            HBITMAP hBitmapOld = static_cast<HBITMAP>(SelectObject(hdcMem, hSplashImage));
+
+            // Get the dimensions of the BMP image
+            BITMAP bm;
+            GetObject(hSplashImage, sizeof(BITMAP), &bm);
+
+            // Draw the BMP image
+            BitBlt(hdc, 0, 0, bm.bmWidth, bm.bmHeight, hdcMem, 0, 0, SRCCOPY);
+
+            SelectObject(hdcMem, hBitmapOld);
+            DeleteDC(hdcMem);
+        }
+
+        EndPaint(hWnd, &ps);
+        break;
+    }
+    case WM_DESTROY: {
+        // Clean up and exit
+        if (hSplashImage) {
+            DeleteObject(hSplashImage);
+            hSplashImage = nullptr;
+        }
+        PostQuitMessage(0);
+        break;
+    }
+    default:
+        return DefWindowProc(hWnd, message, wParam, lParam);
+    }
+    return 0;
+}
+
+
 bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
 {
     switch (dwReason)
@@ -921,15 +1013,66 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
         case DLL_PROCESS_ATTACH:
         {
             g_hWrapperModule = hModule;
-        
+
+            //ShowSplashImage();
+
             // Load dll
             char path[MAX_PATH];
             GetSystemDirectoryA(path, MAX_PATH);
             strcat_s(path, "\\d3d9.dll");
             d3d9dll = LoadLibraryA(path);
 
+            // Store the module handle for later use
+            DisableThreadLibraryCalls(hModule);
+            // Register the window class
+            WNDCLASSEXW wcex;
+            wcex.cbSize = sizeof(WNDCLASSEX);
+            wcex.style = CS_HREDRAW | CS_VREDRAW;
+            wcex.lpfnWndProc = WndProc;
+            wcex.cbClsExtra = 0;
+            wcex.cbWndExtra = 0;
+            wcex.hInstance = hModule;
+            wcex.hIcon = nullptr;
+            wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
+            wcex.hbrBackground = nullptr;
+            wcex.lpszMenuName = nullptr;
+            wcex.lpszClassName = L"QoS Splash Screen";
+            wcex.hIconSm = nullptr;
+
+            if (!RegisterClassExW(&wcex)) {
+                MessageBoxW(nullptr, L"Failed to register window class.", L"Error", MB_OK | MB_ICONERROR);
+                return FALSE;
+            }
+
+            // Create the splash window
+            HWND hWndSplash = CreateWindowExW(0, wcex.lpszClassName, nullptr, WS_OVERLAPPEDWINDOW,
+                CW_USEDEFAULT, CW_USEDEFAULT, 300, 200, nullptr, nullptr, hModule, nullptr);
+            if (!hWndSplash) {
+                DWORD error = GetLastError();
+                LPWSTR errorMessage = nullptr;
+                FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                    nullptr, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                    reinterpret_cast<LPWSTR>(&errorMessage), 0, nullptr);
+                MessageBoxW(nullptr, errorMessage ? errorMessage : L"Failed to create window.", L"Error", MB_OK | MB_ICONERROR);
+                LocalFree(errorMessage);
+                return FALSE;
+            }
+
+            // Show the window
+            ShowWindow(hWndSplash, SW_SHOWNORMAL);
+            UpdateWindow(hWndSplash);
+            // Wait for a few seconds (optional)
+            Sleep(3000);
+
+            // Destroy the splash window
+            DestroyWindow(hWndSplash);
+
+
             if (d3d9dll)
             {
+
+                
+
                 // Get function addresses
                 m_pDirect3DShaderValidatorCreate9 = (Direct3DShaderValidatorCreate9Proc)GetProcAddress(d3d9dll, "Direct3DShaderValidatorCreate9");
                 m_pPSGPError = (PSGPErrorProc)GetProcAddress(d3d9dll, "PSGPError");
@@ -956,12 +1099,20 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
                 fFPSLimit = static_cast<float>(GetPrivateProfileInt("MAIN", "FPSLimit", 0, path));
                 nFullScreenRefreshRateInHz = GetPrivateProfileInt("MAIN", "FullScreenRefreshRateInHz", 0, path);
                 bDisplayFPSCounter = GetPrivateProfileInt("MAIN", "DisplayFPSCounter", 0, path);
+                bDevConsole = GetPrivateProfileInt("MAIN", "DevConsole", 0, path);
+
+
                 bUsePrimaryMonitor = GetPrivateProfileInt("FORCEWINDOWED", "UsePrimaryMonitor", 0, path) != 0;
                 bCenterWindow = GetPrivateProfileInt("FORCEWINDOWED", "CenterWindow", 1, path) != 0;
                 bBorderlessFullscreen = GetPrivateProfileInt("FORCEWINDOWED", "BorderlessFullscreen", 0, path) != 0;
                 bWindowedReal = GetPrivateProfileInt("FORCEWINDOWED", "WindowedMode", 0, path) != 0;
                 bAlwaysOnTop = GetPrivateProfileInt("FORCEWINDOWED", "AlwaysOnTop", 0, path) != 0;
                 bDoNotNotifyOnTaskSwitch = GetPrivateProfileInt("FORCEWINDOWED", "DoNotNotifyOnTaskSwitch", 0, path) != 0;
+
+                if (bDevConsole)
+                {
+                    CreateThread(nullptr, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(ShowDevConsole), nullptr, 0, 0);
+                }
 
                 if (fFPSLimit > 0.0f)
                 {
