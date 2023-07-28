@@ -20,6 +20,17 @@
 #include "helpers.h"
 #include <chrono>   // For std::chrono
 #include <thread>   // For std::this_thread
+#include <iostream>
+#include "../build/game.h"
+//#include "../build/console.h"
+
+#include <detours.h>
+#include "../build/memcpy.h"
+
+#include <cstdarg>
+#include <cstdio>
+#include <fstream>
+
 #pragma comment(lib, "d3dx9.lib")
 #pragma comment(lib, "winmm.lib") // needed for timeBeginPeriod()/timeEndPeriod()
 
@@ -54,6 +65,7 @@ bool bAlwaysOnTop;
 bool bDoNotNotifyOnTaskSwitch;
 bool bDisplayFPSCounter;
 bool bDevConsole;
+bool bRInput;
 float fFPSLimit;
 int nFullScreenRefreshRateInHz;
 
@@ -315,6 +327,9 @@ void ForceWindowed(D3DPRESENT_PARAMETERS* pPresentationParameters, D3DDISPLAYMOD
 
             SetWindowLongPtr(hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW);
             uFlags == SWP_FRAMECHANGED | SWP_SHOWWINDOW;
+
+            // Set the new window title using SetWindowText function
+            SetWindowText(hwnd, "Project: Consolation - Multiplayer");
 
             SetWindowPos(hwnd, bAlwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST, left, top, pPresentationParameters->BackBufferWidth, pPresentationParameters->BackBufferHeight, uFlags);
         }
@@ -917,21 +932,84 @@ void HookImportedModules()
     }
 }
 
-DWORD dllBase = reinterpret_cast<DWORD>(GetModuleHandleA("jb_mp_s.dll")); //obviously remove this if its not for QoS
+
+void clearCon()
+{
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+    Con_Close(0);
+}
+
+std::ofstream logFile;
+
+void conPrint(int channel, const char* fmt, ...)
+{
+    va_list ap;
+    char buf[0x4000];
+
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+
+    // If the log file is not open, open it in append mode
+    if (!logFile.is_open())
+    {
+        logFile.open("con_output.log", std::ios::out);
+        if (!logFile.is_open())
+        {
+            // If the log file can't be opened, print an error message to the console
+            // and return without logging the message.
+            Conbuf_AppendText(0, "[Project: Consolation] - FATAL: Failed to open the log file.");
+            return;
+        }
+    }
+
+    // If the message contains the text "$init"
+    if (std::string(buf).find("begin $init") != std::string::npos)
+    {
+        // Log the message to the file
+        logFile << buf;
+    }
+
+    if (std::string(buf).find("SCALEFORM") != std::string::npos)
+    {
+        return; //Do not remove this, this filters out and output with "SCALEFORM" in it, as it is unnecessary
+    }
+
+    if (std::string(buf).size() > 50)
+    {
+        buf[0] = '\0';
+    }
+
+    //Conbuf_AppendText(0, buf); //Prints the output
+    // 
+    //Com_Printf(channel, buf); //Returns hooked function
+
+    // Log the message to the file
+    logFile << buf;
+}
+
 
 void ShowDevConsole()
 {
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-    //FPS unlock?
-    //memset((GetModuleHandleA("jb_mp_s.dll") + 0x711AF8 + 0x10), 0x90, 2);
-    reinterpret_cast<int(__cdecl*)()>(dllBase + 0x2C4230)();
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-    MSG m;
-    while (GetMessage(&m, nullptr, 0, 0)) {
-        TranslateMessage(&m);
-        DispatchMessage(&m);
+    Sys_ShowConsole();
+    /*
+    MSG message;
+    while (IsWindow!= FALSE && GetMessageA(&message, nullptr, 0, 0))
+    {
+        TranslateMessage(&message);
+        DispatchMessageA(&message);
+    }*/
+    MSG message;
+    while (GetMessageA(&message, 0, 0, 0))
+    {
+        TranslateMessage(&message);
+        DispatchMessageA(&message);
     }
+    exit(0);
 }
+
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
     static HBITMAP hSplashImage = nullptr;
@@ -940,7 +1018,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     case WM_CREATE: {
         hSplashImage = static_cast<HBITMAP>(LoadImageW(nullptr, L"splash.bmp", IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION | LR_DEFAULTSIZE));
         if (!hSplashImage) {
-            MessageBoxW(nullptr, L"Failed to load BMP image from file.", L"Error", MB_OK | MB_ICONERROR);
+            MessageBoxW(nullptr, L"Failed to load BMP image from file.\nDid you place the splash files in root?", L"Error", MB_OK | MB_ICONERROR);
             return -1;
         }
 
@@ -1006,6 +1084,103 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
 }
 
 
+LRESULT CALLBACK SubclassWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    if (msg == WM_DESTROY)
+    {
+        PostQuitMessage(0);
+        return 0;
+    }
+    return DefWindowProc(hWnd, msg, wParam, lParam);
+}
+
+HWND CreateConsole(HINSTANCE hInstance)
+{
+    WNDCLASS wndClass;
+    ZeroMemory(&wndClass, sizeof(WNDCLASS));
+
+    wndClass.style = 0;
+    wndClass.lpfnWndProc = SubclassWndProc;
+    wndClass.hInstance = hInstance;
+    wndClass.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(0x65));
+    wndClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wndClass.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+    wndClass.lpszClassName = "007 WinConsole";
+
+    ATOM wndAtom = RegisterClass(&wndClass);
+    if (!wndAtom)
+    {
+        // Failed to register window class
+        return nullptr;
+    }
+
+    RECT rect = { 0, 0, 620, 450 };
+    AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
+
+    HWND desktopWindow = GetDesktopWindow();
+    HDC hdcDesktop = GetDC(desktopWindow);
+    int deviceCapsX = GetDeviceCaps(hdcDesktop, HORZRES);
+    int deviceCapsY = GetDeviceCaps(hdcDesktop, VERTRES);
+    ReleaseDC(desktopWindow, hdcDesktop);
+
+    int windowX = (deviceCapsX - (rect.right - rect.left)) / 2;
+    int windowY = (deviceCapsY - (rect.bottom - rect.top)) / 2;
+
+    HWND hWndParent = CreateWindowEx(0, "007 WinConsole", "007 Console",
+        WS_OVERLAPPEDWINDOW, windowX, windowY, rect.right - rect.left, rect.bottom - rect.top,
+        nullptr, nullptr, hInstance, nullptr);
+
+    if (hWndParent)
+    {
+        HDC hdc = GetDC(hWndParent);
+        int fontSize = MulDiv(8, GetDeviceCaps(hdc, LOGPIXELSY), 72);
+        HFONT hFont = CreateFont(-fontSize, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            DEFAULT_QUALITY, FIXED_PITCH | FF_DONTCARE, "Courier New");
+        ReleaseDC(hWndParent, hdc);
+
+        if (hFont)
+        {
+            HWND hStatic = CreateWindowEx(0, "Static", nullptr,
+                WS_VISIBLE | WS_CHILD | SS_BITMAP, 5, 5, 0, 0, hWndParent, (HMENU)1, hInstance, nullptr);
+            HBITMAP hBitmap = (HBITMAP)LoadImage(hInstance, "jblogo.bmp", IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
+            if (hBitmap)
+            {
+                SendMessage(hStatic, STM_SETIMAGE, (WPARAM)IMAGE_BITMAP, (LPARAM)hBitmap);
+            }
+
+            HWND hInput = CreateWindowEx(0, "edit", nullptr,
+                WS_VISIBLE | WS_CHILD | ES_AUTOHSCROLL, 6, 400, 608, 20, hWndParent, (HMENU)0x65, hInstance, nullptr);
+
+            HWND hOutput = CreateWindowEx(0, "edit", nullptr,
+                WS_VISIBLE | WS_CHILD | ES_AUTOHSCROLL | ES_AUTOVSCROLL | WS_VSCROLL | ES_MULTILINE, 6, 70, 606, 324, hWndParent, (HMENU)0x64, hInstance, nullptr);
+
+            if (hOutput)
+            {
+                SendMessage(hOutput, WM_SETFONT, (WPARAM)hFont, MAKELPARAM(TRUE, 0));
+            }
+
+            SetWindowLongPtr(hWndParent, GWLP_WNDPROC, (LONG_PTR)SubclassWndProc);
+            SetFocus(hInput);
+
+            // Add any additional logic here if needed
+
+            return hWndParent;
+        }
+    }
+
+    return nullptr;
+}
+
+template <class Value>
+void WritePointer(DWORD pointer, DWORD pointerofs, Value value)
+{
+
+    DWORD dwPointer = *(DWORD*)pointer;
+    *(Value*)(dwPointer + pointerofs) = value;
+
+}
+
 bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
 {
     switch (dwReason)
@@ -1014,8 +1189,6 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
         {
             g_hWrapperModule = hModule;
 
-            //ShowSplashImage();
-
             // Load dll
             char path[MAX_PATH];
             GetSystemDirectoryA(path, MAX_PATH);
@@ -1023,17 +1196,16 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
             d3d9dll = LoadLibraryA(path);
 
 
-            HMODULE testdll = LoadLibrary("test.dll");
+            /*HMODULE testdll = LoadLibrary("test.dll");
             if (testdll == NULL) {
                 // Handle error when loading DLL
-                MessageBoxA(NULL, "Failed to load test.dll.", "[Quantum of Solace] Client Error!", MB_OK | MB_ICONERROR);
+                MessageBoxA(NULL, "Failed to load test.dll.", "[Project: Consolation] Client Error!", MB_OK | MB_ICONERROR);
                 exit(0);
-            }
+            }*/
 
 
             if (d3d9dll)
             {
-
                 // Setup for splashwindow
                 DisableThreadLibraryCalls(hModule);
                 // Register the window class
@@ -1048,7 +1220,7 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
                 wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
                 wcex.hbrBackground = nullptr;
                 wcex.lpszMenuName = nullptr;
-                wcex.lpszClassName = L"QoS Splash Screen";
+                wcex.lpszClassName = L"Project: Consolation";
                 wcex.hIconSm = nullptr;
 
                 if (!RegisterClassExW(&wcex)) {
@@ -1057,7 +1229,7 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
                 }
 
                 // Create the splash window
-                HWND hWndSplash = CreateWindowExW(0, wcex.lpszClassName, nullptr, WS_OVERLAPPEDWINDOW,
+                HWND hWndSplash = CreateWindowEx(0, "Project: Consolation", "Project: Consolation", WS_OVERLAPPEDWINDOW,
                     CW_USEDEFAULT, CW_USEDEFAULT, 300, 200, nullptr, nullptr, hModule, nullptr);
                 if (!hWndSplash) {
                     DWORD error = GetLastError();
@@ -1072,9 +1244,10 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
 
                 // Show the window
                 ShowWindow(hWndSplash, SW_SHOWNORMAL);
+                SetWindowText(hWndSplash, "Project: Consolation");
                 UpdateWindow(hWndSplash);
                 // Wait for a few seconds (optional)
-                std::this_thread::sleep_for(std::chrono::seconds(2));
+                std::this_thread::sleep_for(std::chrono::milliseconds(2500));
 
                 // Destroy the splash window
                 DestroyWindow(hWndSplash);
@@ -1105,7 +1278,8 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
                 fFPSLimit = static_cast<float>(GetPrivateProfileInt("MAIN", "FPSLimit", 0, path));
                 nFullScreenRefreshRateInHz = GetPrivateProfileInt("MAIN", "FullScreenRefreshRateInHz", 0, path);
                 bDisplayFPSCounter = GetPrivateProfileInt("MAIN", "DisplayFPSCounter", 0, path);
-                bDevConsole = GetPrivateProfileInt("MAIN", "DevConsole", 0, path);
+                bDevConsole = GetPrivateProfileInt("MAIN", "DevConsole", 0, path) != 0;
+                bRInput = GetPrivateProfileInt("MAIN", "RInput", 0, path) != 0;
 
 
                 bUsePrimaryMonitor = GetPrivateProfileInt("FORCEWINDOWED", "UsePrimaryMonitor", 0, path) != 0;
@@ -1115,8 +1289,24 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
                 bAlwaysOnTop = GetPrivateProfileInt("FORCEWINDOWED", "AlwaysOnTop", 0, path) != 0;
                 bDoNotNotifyOnTaskSwitch = GetPrivateProfileInt("FORCEWINDOWED", "DoNotNotifyOnTaskSwitch", 0, path) != 0;
 
+                if (bRInput)
+                {
+                    HMODULE RInputDLL = LoadLibrary("RInput.dll");
+                    if (RInputDLL == NULL)
+                    {
+                        MessageBoxA(NULL, "Failed to load RInput.dll.\nPlease make sure it's placed in your directory, if you're missing it you can download it on VolsandJezuz' GitHub", "[Project: Consolation] Error - RInput", MB_OK | MB_ICONERROR);
+                    }
+                }
+
                 if (bDevConsole)
                 {
+                    DetourTransactionBegin();
+                    DetourAttach(&(LPVOID&)Com_Printf, conPrint); //console print fix - full
+                    DetourTransactionCommit();
+
+                    //set<LPCSTR>(dllBase + 0x4F169C, "Project: Consolation - Console");
+                    //strcpy(reinterpret_cast<char*>(dllBase + 0x4F169C), "Project: Consolation - Console");
+
                     CreateThread(nullptr, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(ShowDevConsole), nullptr, 0, 0);
                 }
 
