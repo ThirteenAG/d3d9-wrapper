@@ -18,6 +18,18 @@
 #include "d3dx9.h"
 #include "iathook.h"
 #include "helpers.h"
+#include <chrono>   // For std::chrono
+#include <thread>   // For std::this_thread
+#include <iostream>
+#include "../build/game.h"
+//#include "../build/console.h"
+
+#include <detours.h>
+#include "../build/memcpy.h"
+
+#include <cstdarg>
+#include <cstdio>
+#include <fstream>
 
 #pragma comment(lib, "d3dx9.lib")
 #pragma comment(lib, "winmm.lib") // needed for timeBeginPeriod()/timeEndPeriod()
@@ -42,14 +54,18 @@ HWND g_hFocusWindow = NULL;
 HMODULE g_hWrapperModule = NULL;
 
 HMODULE d3d9dll = NULL;
+HMODULE testdll = NULL;
 
 bool bForceWindowedMode;
 bool bUsePrimaryMonitor;
 bool bCenterWindow;
 bool bBorderlessFullscreen;
+bool bWindowedReal;
 bool bAlwaysOnTop;
 bool bDoNotNotifyOnTaskSwitch;
 bool bDisplayFPSCounter;
+bool bDevConsole;
+bool bRInput;
 float fFPSLimit;
 int nFullScreenRefreshRateInHz;
 
@@ -303,6 +319,19 @@ void ForceWindowed(D3DPRESENT_PARAMETERS* pPresentationParameters, D3DDISPLAYMOD
                 uFlags |= SWP_FRAMECHANGED;
             }
             SetWindowPos(hwnd, bAlwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST, left, top, DesktopResX, DesktopResY, uFlags);
+        }
+        if (bWindowedReal)
+        {
+            if (!bCenterWindow)
+                uFlags |= SWP_NOMOVE;
+
+            SetWindowLongPtr(hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW);
+            uFlags == SWP_FRAMECHANGED | SWP_SHOWWINDOW;
+
+            // Set the new window title using SetWindowText function
+            SetWindowText(hwnd, "Project: Consolation - Multiplayer");
+
+            SetWindowPos(hwnd, bAlwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST, left, top, pPresentationParameters->BackBufferWidth, pPresentationParameters->BackBufferHeight, uFlags);
         }
         else
         {
@@ -903,6 +932,255 @@ void HookImportedModules()
     }
 }
 
+
+void clearCon()
+{
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+    Con_Close(0);
+}
+
+std::ofstream logFile;
+
+void conPrint(int channel, const char* fmt, ...)
+{
+    va_list ap;
+    char buf[0x4000];
+
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+
+    // If the log file is not open, open it in append mode
+    if (!logFile.is_open())
+    {
+        logFile.open("con_output.log", std::ios::out);
+        if (!logFile.is_open())
+        {
+            // If the log file can't be opened, print an error message to the console
+            // and return without logging the message.
+            Conbuf_AppendText(0, "[Project: Consolation] - FATAL: Failed to open the log file.");
+            return;
+        }
+    }
+
+    // If the message contains the text "$init"
+    if (std::string(buf).find("begin $init") != std::string::npos)
+    {
+        // Log the message to the file
+        logFile << buf;
+    }
+
+    if (std::string(buf).find("SCALEFORM") != std::string::npos)
+    {
+        return; //Do not remove this, this filters out and output with "SCALEFORM" in it, as it is unnecessary
+    }
+
+    if (std::string(buf).size() > 50)
+    {
+        buf[0] = '\0';
+    }
+
+    //Conbuf_AppendText(0, buf); //Prints the output
+    // 
+    //Com_Printf(channel, buf); //Returns hooked function
+
+    // Log the message to the file
+    logFile << buf;
+}
+
+
+void ShowDevConsole()
+{
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    Sys_ShowConsole();
+    /*
+    MSG message;
+    while (IsWindow!= FALSE && GetMessageA(&message, nullptr, 0, 0))
+    {
+        TranslateMessage(&message);
+        DispatchMessageA(&message);
+    }*/
+    MSG message;
+    while (GetMessageA(&message, 0, 0, 0))
+    {
+        TranslateMessage(&message);
+        DispatchMessageA(&message);
+    }
+    exit(0);
+}
+
+
+LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    static HBITMAP hSplashImage = nullptr;
+
+    switch (message) {
+    case WM_CREATE: {
+        hSplashImage = static_cast<HBITMAP>(LoadImageW(nullptr, L"splash.bmp", IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE | LR_CREATEDIBSECTION | LR_DEFAULTSIZE));
+        if (!hSplashImage) {
+            MessageBoxW(nullptr, L"Failed to load BMP image from file.\nDid you place the splash files in root?", L"Error", MB_OK | MB_ICONERROR);
+            return -1;
+        }
+
+        // Get the dimensions of the BMP image
+        BITMAP bm;
+        GetObject(hSplashImage, sizeof(BITMAP), &bm);
+
+        // Get the screen dimensions
+        int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+        int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+
+        // Adjust window size based on image dimensions
+        RECT rc = { 0, 0, bm.bmWidth, bm.bmHeight };
+        int width = rc.right - rc.left;
+        int height = rc.bottom - rc.top;
+
+        // Calculate the position to center the window
+        int x = (screenWidth - width) / 2;
+        int y = (screenHeight - height) / 2;
+
+        // Set the window style and position
+        SetWindowLong(hWnd, GWL_STYLE, WS_POPUP | WS_SYSMENU);
+        SetWindowPos(hWnd, HWND_TOPMOST, x, y, width, height, 0);
+
+        break;
+    }
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hWnd, &ps);
+
+        if (hSplashImage) {
+            // Draw the BMP image
+            HDC hdcMem = CreateCompatibleDC(hdc);
+            HBITMAP hBitmapOld = static_cast<HBITMAP>(SelectObject(hdcMem, hSplashImage));
+
+            // Get the dimensions of the BMP image
+            BITMAP bm;
+            GetObject(hSplashImage, sizeof(BITMAP), &bm);
+
+            // Draw the BMP image
+            BitBlt(hdc, 0, 0, bm.bmWidth, bm.bmHeight, hdcMem, 0, 0, SRCCOPY);
+
+            SelectObject(hdcMem, hBitmapOld);
+            DeleteDC(hdcMem);
+        }
+
+        EndPaint(hWnd, &ps);
+        break;
+    }
+    case WM_DESTROY: {
+        // Clean up and exit
+        if (hSplashImage) {
+            DeleteObject(hSplashImage);
+            hSplashImage = nullptr;
+        }
+        PostQuitMessage(0);
+        break;
+    }
+    default:
+        return DefWindowProc(hWnd, message, wParam, lParam);
+    }
+    return 0;
+}
+
+
+LRESULT CALLBACK SubclassWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    if (msg == WM_DESTROY)
+    {
+        PostQuitMessage(0);
+        return 0;
+    }
+    return DefWindowProc(hWnd, msg, wParam, lParam);
+}
+
+HWND CreateConsole(HINSTANCE hInstance)
+{
+    WNDCLASS wndClass;
+    ZeroMemory(&wndClass, sizeof(WNDCLASS));
+
+    wndClass.style = 0;
+    wndClass.lpfnWndProc = SubclassWndProc;
+    wndClass.hInstance = hInstance;
+    wndClass.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(0x65));
+    wndClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wndClass.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
+    wndClass.lpszClassName = "007 WinConsole";
+
+    ATOM wndAtom = RegisterClass(&wndClass);
+    if (!wndAtom)
+    {
+        // Failed to register window class
+        return nullptr;
+    }
+
+    RECT rect = { 0, 0, 620, 450 };
+    AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
+
+    HWND desktopWindow = GetDesktopWindow();
+    HDC hdcDesktop = GetDC(desktopWindow);
+    int deviceCapsX = GetDeviceCaps(hdcDesktop, HORZRES);
+    int deviceCapsY = GetDeviceCaps(hdcDesktop, VERTRES);
+    ReleaseDC(desktopWindow, hdcDesktop);
+
+    int windowX = (deviceCapsX - (rect.right - rect.left)) / 2;
+    int windowY = (deviceCapsY - (rect.bottom - rect.top)) / 2;
+
+    HWND hWndParent = CreateWindowEx(0, "007 WinConsole", "007 Console",
+        WS_OVERLAPPEDWINDOW, windowX, windowY, rect.right - rect.left, rect.bottom - rect.top,
+        nullptr, nullptr, hInstance, nullptr);
+
+    if (hWndParent)
+    {
+        HDC hdc = GetDC(hWndParent);
+        int fontSize = MulDiv(8, GetDeviceCaps(hdc, LOGPIXELSY), 72);
+        HFONT hFont = CreateFont(-fontSize, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            DEFAULT_QUALITY, FIXED_PITCH | FF_DONTCARE, "Courier New");
+        ReleaseDC(hWndParent, hdc);
+
+        if (hFont)
+        {
+            HWND hStatic = CreateWindowEx(0, "Static", nullptr,
+                WS_VISIBLE | WS_CHILD | SS_BITMAP, 5, 5, 0, 0, hWndParent, (HMENU)1, hInstance, nullptr);
+            HBITMAP hBitmap = (HBITMAP)LoadImage(hInstance, "jblogo.bmp", IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
+            if (hBitmap)
+            {
+                SendMessage(hStatic, STM_SETIMAGE, (WPARAM)IMAGE_BITMAP, (LPARAM)hBitmap);
+            }
+
+            HWND hInput = CreateWindowEx(0, "edit", nullptr,
+                WS_VISIBLE | WS_CHILD | ES_AUTOHSCROLL, 6, 400, 608, 20, hWndParent, (HMENU)0x65, hInstance, nullptr);
+
+            HWND hOutput = CreateWindowEx(0, "edit", nullptr,
+                WS_VISIBLE | WS_CHILD | ES_AUTOHSCROLL | ES_AUTOVSCROLL | WS_VSCROLL | ES_MULTILINE, 6, 70, 606, 324, hWndParent, (HMENU)0x64, hInstance, nullptr);
+
+            if (hOutput)
+            {
+                SendMessage(hOutput, WM_SETFONT, (WPARAM)hFont, MAKELPARAM(TRUE, 0));
+            }
+
+            SetWindowLongPtr(hWndParent, GWLP_WNDPROC, (LONG_PTR)SubclassWndProc);
+            SetFocus(hInput);
+
+            // Add any additional logic here if needed
+
+            return hWndParent;
+        }
+    }
+
+    return nullptr;
+}
+
+template <class Value>
+void WritePointer(DWORD pointer, DWORD pointerofs, Value value)
+{
+
+    DWORD dwPointer = *(DWORD*)pointer;
+    *(Value*)(dwPointer + pointerofs) = value;
+
+}
+
 bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
 {
     switch (dwReason)
@@ -910,15 +1188,70 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
         case DLL_PROCESS_ATTACH:
         {
             g_hWrapperModule = hModule;
-        
+
             // Load dll
             char path[MAX_PATH];
             GetSystemDirectoryA(path, MAX_PATH);
             strcat_s(path, "\\d3d9.dll");
             d3d9dll = LoadLibraryA(path);
 
+
+            /*HMODULE testdll = LoadLibrary("test.dll");
+            if (testdll == NULL) {
+                // Handle error when loading DLL
+                MessageBoxA(NULL, "Failed to load test.dll.", "[Project: Consolation] Client Error!", MB_OK | MB_ICONERROR);
+                exit(0);
+            }*/
+
+
             if (d3d9dll)
             {
+                // Setup for splashwindow
+                DisableThreadLibraryCalls(hModule);
+                // Register the window class
+                WNDCLASSEXW wcex;
+                wcex.cbSize = sizeof(WNDCLASSEX);
+                wcex.style = CS_HREDRAW | CS_VREDRAW;
+                wcex.lpfnWndProc = WndProc;
+                wcex.cbClsExtra = 0;
+                wcex.cbWndExtra = 0;
+                wcex.hInstance = hModule;
+                wcex.hIcon = nullptr;
+                wcex.hCursor = LoadCursor(nullptr, IDC_ARROW);
+                wcex.hbrBackground = nullptr;
+                wcex.lpszMenuName = nullptr;
+                wcex.lpszClassName = L"Project: Consolation";
+                wcex.hIconSm = nullptr;
+
+                if (!RegisterClassExW(&wcex)) {
+                    MessageBoxW(nullptr, L"Failed to register window class.", L"Error", MB_OK | MB_ICONERROR);
+                    return FALSE;
+                }
+
+                // Create the splash window
+                HWND hWndSplash = CreateWindowEx(0, "Project: Consolation", "Project: Consolation", WS_OVERLAPPEDWINDOW,
+                    CW_USEDEFAULT, CW_USEDEFAULT, 300, 200, nullptr, nullptr, hModule, nullptr);
+                if (!hWndSplash) {
+                    DWORD error = GetLastError();
+                    LPWSTR errorMessage = nullptr;
+                    FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                        nullptr, error, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                        reinterpret_cast<LPWSTR>(&errorMessage), 0, nullptr);
+                    MessageBoxW(nullptr, errorMessage ? errorMessage : L"Failed to create window.", L"Error", MB_OK | MB_ICONERROR);
+                    LocalFree(errorMessage);
+                    return FALSE;
+                }
+
+                // Show the window
+                ShowWindow(hWndSplash, SW_SHOWNORMAL);
+                SetWindowText(hWndSplash, "Project: Consolation");
+                UpdateWindow(hWndSplash);
+                // Wait for a few seconds (optional)
+                std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+
+                // Destroy the splash window
+                DestroyWindow(hWndSplash);
+
                 // Get function addresses
                 m_pDirect3DShaderValidatorCreate9 = (Direct3DShaderValidatorCreate9Proc)GetProcAddress(d3d9dll, "Direct3DShaderValidatorCreate9");
                 m_pPSGPError = (PSGPErrorProc)GetProcAddress(d3d9dll, "PSGPError");
@@ -945,11 +1278,37 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
                 fFPSLimit = static_cast<float>(GetPrivateProfileInt("MAIN", "FPSLimit", 0, path));
                 nFullScreenRefreshRateInHz = GetPrivateProfileInt("MAIN", "FullScreenRefreshRateInHz", 0, path);
                 bDisplayFPSCounter = GetPrivateProfileInt("MAIN", "DisplayFPSCounter", 0, path);
+                bDevConsole = GetPrivateProfileInt("MAIN", "DevConsole", 0, path) != 0;
+                bRInput = GetPrivateProfileInt("MAIN", "RInput", 0, path) != 0;
+
+
                 bUsePrimaryMonitor = GetPrivateProfileInt("FORCEWINDOWED", "UsePrimaryMonitor", 0, path) != 0;
                 bCenterWindow = GetPrivateProfileInt("FORCEWINDOWED", "CenterWindow", 1, path) != 0;
                 bBorderlessFullscreen = GetPrivateProfileInt("FORCEWINDOWED", "BorderlessFullscreen", 0, path) != 0;
+                bWindowedReal = GetPrivateProfileInt("FORCEWINDOWED", "WindowedMode", 0, path) != 0;
                 bAlwaysOnTop = GetPrivateProfileInt("FORCEWINDOWED", "AlwaysOnTop", 0, path) != 0;
                 bDoNotNotifyOnTaskSwitch = GetPrivateProfileInt("FORCEWINDOWED", "DoNotNotifyOnTaskSwitch", 0, path) != 0;
+
+                if (bRInput)
+                {
+                    HMODULE RInputDLL = LoadLibrary("RInput.dll");
+                    if (RInputDLL == NULL)
+                    {
+                        MessageBoxA(NULL, "Failed to load RInput.dll.\nPlease make sure it's placed in your directory, if you're missing it you can download it on VolsandJezuz' GitHub", "[Project: Consolation] Error - RInput", MB_OK | MB_ICONERROR);
+                    }
+                }
+
+                if (bDevConsole)
+                {
+                    DetourTransactionBegin();
+                    DetourAttach(&(LPVOID&)Com_Printf, conPrint); //console print fix - full
+                    DetourTransactionCommit();
+
+                    //set<LPCSTR>(dllBase + 0x4F169C, "Project: Consolation - Console");
+                    //strcpy(reinterpret_cast<char*>(dllBase + 0x4F169C), "Project: Consolation - Console");
+
+                    CreateThread(nullptr, 0, reinterpret_cast<LPTHREAD_START_ROUTINE>(ShowDevConsole), nullptr, 0, 0);
+                }
 
                 if (fFPSLimit > 0.0f)
                 {
