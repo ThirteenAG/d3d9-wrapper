@@ -46,12 +46,12 @@ HMODULE d3d9dll = NULL;
 bool bForceWindowedMode;
 bool bUsePrimaryMonitor;
 bool bCenterWindow;
-bool bBorderlessFullscreen;
 bool bAlwaysOnTop;
 bool bDoNotNotifyOnTaskSwitch;
 bool bDisplayFPSCounter;
 float fFPSLimit;
 int nFullScreenRefreshRateInHz;
+int nForceWindowStyle;
 
 char WinDir[MAX_PATH+1];
 
@@ -262,7 +262,7 @@ void ForceWindowed(D3DPRESENT_PARAMETERS* pPresentationParameters, D3DDISPLAYMOD
     int left = (int)info.rcMonitor.left;
     int top = (int)info.rcMonitor.top;
 
-    if (!bBorderlessFullscreen)
+    if (nForceWindowStyle != 1) // not borderless fullscreen
     {
         left += (int)(((float)DesktopResX / 2.0f) - ((float)pPresentationParameters->BackBufferWidth / 2.0f));
         top += (int)(((float)DesktopResY / 2.0f) - ((float)pPresentationParameters->BackBufferHeight / 2.0f));
@@ -282,16 +282,36 @@ void ForceWindowed(D3DPRESENT_PARAMETERS* pPresentationParameters, D3DDISPLAYMOD
 
     if (hwnd != NULL)
     {
+        int cx, cy;
         UINT uFlags = SWP_SHOWWINDOW;
-        if (bBorderlessFullscreen)
+        LONG lOldStyle = GetWindowLong(hwnd, GWL_STYLE);
+        LONG lOldExStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+        LONG lNewStyle, lNewExStyle;
+        if (nForceWindowStyle == 1) // borderless fullscreen
         {
-            LONG lOldStyle = GetWindowLong(hwnd, GWL_STYLE);
-            LONG lOldExStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
-            LONG lNewStyle = lOldStyle & ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZE | WS_MAXIMIZE | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_DLGFRAME);
+            cx = DesktopResX;
+            cy = DesktopResY;
+            lNewStyle = lOldStyle & ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZE | WS_MAXIMIZE | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_DLGFRAME);
             lNewStyle |= (lOldStyle & WS_CHILD) ? 0 : WS_POPUP;
-            LONG lNewExStyle = lOldExStyle & ~(WS_EX_CONTEXTHELP | WS_EX_DLGMODALFRAME | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE | WS_EX_WINDOWEDGE | WS_EX_TOOLWINDOW);
+            lNewExStyle = lOldExStyle & ~(WS_EX_CONTEXTHELP | WS_EX_DLGMODALFRAME | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE | WS_EX_WINDOWEDGE | WS_EX_TOOLWINDOW);
             lNewExStyle |= WS_EX_APPWINDOW;
+        }
+        else
+        {
+            cx = pPresentationParameters->BackBufferWidth;
+            cy = pPresentationParameters->BackBufferHeight;
+            if (!bCenterWindow)
+                uFlags |= SWP_NOMOVE;
 
+            if (nForceWindowStyle) // force windowed style
+            {
+                lOldExStyle &= ~(WS_EX_TOPMOST);
+                lNewStyle = (WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX);
+                lNewStyle |= (nForceWindowStyle == 3) ? (WS_THICKFRAME | WS_MAXIMIZEBOX) : 0;
+                lNewExStyle = (WS_EX_APPWINDOW | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE);
+            }
+        }
+        if (nForceWindowStyle) {
             if (lNewStyle != lOldStyle)
             {
                 SetWindowLong(hwnd, GWL_STYLE, lNewStyle);
@@ -302,15 +322,8 @@ void ForceWindowed(D3DPRESENT_PARAMETERS* pPresentationParameters, D3DDISPLAYMOD
                 SetWindowLong(hwnd, GWL_EXSTYLE, lNewExStyle);
                 uFlags |= SWP_FRAMECHANGED;
             }
-            SetWindowPos(hwnd, bAlwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST, left, top, DesktopResX, DesktopResY, uFlags);
         }
-        else
-        {
-            if (!bCenterWindow)
-                uFlags |= SWP_NOMOVE;
-
-            SetWindowPos(hwnd, bAlwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST, left, top, pPresentationParameters->BackBufferWidth, pPresentationParameters->BackBufferHeight, uFlags);
-        }
+        SetWindowPos(hwnd, bAlwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST, left, top, cx, cy, uFlags);
     }
 }
 
@@ -947,9 +960,9 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
                 bDisplayFPSCounter = GetPrivateProfileInt("MAIN", "DisplayFPSCounter", 0, path);
                 bUsePrimaryMonitor = GetPrivateProfileInt("FORCEWINDOWED", "UsePrimaryMonitor", 0, path) != 0;
                 bCenterWindow = GetPrivateProfileInt("FORCEWINDOWED", "CenterWindow", 1, path) != 0;
-                bBorderlessFullscreen = GetPrivateProfileInt("FORCEWINDOWED", "BorderlessFullscreen", 0, path) != 0;
                 bAlwaysOnTop = GetPrivateProfileInt("FORCEWINDOWED", "AlwaysOnTop", 0, path) != 0;
                 bDoNotNotifyOnTaskSwitch = GetPrivateProfileInt("FORCEWINDOWED", "DoNotNotifyOnTaskSwitch", 0, path) != 0;
+                nForceWindowStyle = GetPrivateProfileInt("FORCEWINDOWED", "ForceWindowStyle", 0, path);
 
                 if (fFPSLimit > 0.0f)
                 {
