@@ -951,14 +951,14 @@ void conPrint(int channel, const char* fmt, ...)
     va_end(ap);
 
     // If the log file is not open, open it in append mode
-    if (!logFile.is_open())
+    /*if (!logFile.is_open())
     {
         logFile.open("con_output.log", std::ios::out);
         if (!logFile.is_open())
         {
             // If the log file can't be opened, print an error message to the console
             // and return without logging the message.
-            Conbuf_AppendText(0, "[Project: Consolation] - FATAL: Failed to open the log file.");
+            Conbuf_AppendText(0, "[Project: Consolation] - FATAL: Failed to open the log file.\n");
             return;
         }
     }
@@ -968,11 +968,16 @@ void conPrint(int channel, const char* fmt, ...)
     {
         // Log the message to the file
         logFile << buf;
-    }
+    }*/
 
     if (std::string(buf).find("SCALEFORM") != std::string::npos)
     {
         return; //Do not remove this, this filters out and output with "SCALEFORM" in it, as it is unnecessary
+    }
+
+    if (std::string(buf).find("XUserReadProfileSettings took 0ms") != std::string::npos)
+    {
+        return; //filter this as it spams, and isnt the real time it takes
     }
 
     if (std::string(buf).size() > 50)
@@ -980,12 +985,11 @@ void conPrint(int channel, const char* fmt, ...)
         buf[0] = '\0';
     }
 
-    //Conbuf_AppendText(0, buf); //Prints the output
-    // 
+    Conbuf_AppendText(0, buf); //Prints the output
     //Com_Printf(channel, buf); //Returns hooked function
 
     // Log the message to the file
-    logFile << buf;
+    //logFile << buf;
 }
 
 
@@ -994,13 +998,7 @@ void ShowDevConsole()
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
     Sys_ShowConsole();
-    /*
-    MSG message;
-    while (IsWindow!= FALSE && GetMessageA(&message, nullptr, 0, 0))
-    {
-        TranslateMessage(&message);
-        DispatchMessageA(&message);
-    }*/
+
     MSG message;
     while (GetMessageA(&message, 0, 0, 0))
     {
@@ -1281,13 +1279,18 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
                 bDevConsole = GetPrivateProfileInt("MAIN", "DevConsole", 0, path) != 0;
                 bRInput = GetPrivateProfileInt("MAIN", "RInput", 0, path) != 0;
 
-
                 bUsePrimaryMonitor = GetPrivateProfileInt("FORCEWINDOWED", "UsePrimaryMonitor", 0, path) != 0;
                 bCenterWindow = GetPrivateProfileInt("FORCEWINDOWED", "CenterWindow", 1, path) != 0;
                 bBorderlessFullscreen = GetPrivateProfileInt("FORCEWINDOWED", "BorderlessFullscreen", 0, path) != 0;
                 bWindowedReal = GetPrivateProfileInt("FORCEWINDOWED", "WindowedMode", 0, path) != 0;
                 bAlwaysOnTop = GetPrivateProfileInt("FORCEWINDOWED", "AlwaysOnTop", 0, path) != 0;
                 bDoNotNotifyOnTaskSwitch = GetPrivateProfileInt("FORCEWINDOWED", "DoNotNotifyOnTaskSwitch", 0, path) != 0;
+
+                HMODULE GSCDLL = LoadLibrary("QoS_Script.dll");
+                if (GSCDLL == NULL)
+                {
+                    MessageBoxA(NULL, "Failed to load QoS_Script.dll.\nPlease make sure it's placed in your directory.", "[Project: Consolation] Error - GSC", MB_OK | MB_ICONERROR);
+                }
 
                 if (bRInput)
                 {
