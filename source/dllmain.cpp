@@ -49,6 +49,8 @@ bool bCenterWindow;
 bool bAlwaysOnTop;
 bool bDoNotNotifyOnTaskSwitch;
 bool bDisplayFPSCounter;
+bool bEnableHooks;
+bool bCaptureMouse;
 float fFPSLimit;
 int nFullScreenRefreshRateInHz;
 int nForceWindowStyle;
@@ -60,6 +62,8 @@ char WinDir[MAX_PATH+1];
 std::vector<std::pair<WORD,ULONG_PTR>> WndProcList;
 
 void HookModule(HMODULE hmod);
+LRESULT WINAPI CustomWndProcA(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+LRESULT WINAPI CustomWndProcW(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 class FrameLimiter
 {
@@ -147,7 +151,7 @@ public:
             RECT rect;
             device->GetCreationParameters(&cparams);
             GetClientRect(cparams.hFocusWindow, &rect);
-            
+
             D3DXFONT_DESC fps_font;
             ZeroMemory(&fps_font, sizeof(D3DXFONT_DESC));
             fps_font.Height = rect.bottom / 20;
@@ -245,8 +249,20 @@ HRESULT m_IDirect3DDevice9Ex::EndScene()
 {
     if (bDisplayFPSCounter)
         FrameLimiter::ShowFPS(ProxyInterface);
-    
+
     return ProxyInterface->EndScene();
+}
+
+void CaptureMouse(HWND hWnd)
+{
+    RECT window_rect;
+    GetWindowRect(hWnd, &window_rect);
+    if (window_rect.left < 0)
+        window_rect.left = 0;
+    if (window_rect.top < 0)
+        window_rect.top = 0;
+    SetCapture(hWnd);
+    ClipCursor(&window_rect);
 }
 
 void ForceWindowed(D3DPRESENT_PARAMETERS* pPresentationParameters, D3DDISPLAYMODEEX* pFullscreenDisplayMode = NULL)
@@ -287,31 +303,44 @@ void ForceWindowed(D3DPRESENT_PARAMETERS* pPresentationParameters, D3DDISPLAYMOD
         LONG lOldStyle = GetWindowLong(hwnd, GWL_STYLE);
         LONG lOldExStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
         LONG lNewStyle, lNewExStyle;
-        if (nForceWindowStyle == 1) // borderless fullscreen
+
+        lOldExStyle &= ~(WS_EX_TOPMOST);
+
+        if (nForceWindowStyle == 1)
         {
             cx = DesktopResX;
             cy = DesktopResY;
-            lNewStyle = lOldStyle & ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZE | WS_MAXIMIZE | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_DLGFRAME);
-            lNewStyle |= (lOldStyle & WS_CHILD) ? 0 : WS_POPUP;
-            lNewExStyle = lOldExStyle & ~(WS_EX_CONTEXTHELP | WS_EX_DLGMODALFRAME | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE | WS_EX_WINDOWEDGE | WS_EX_TOOLWINDOW);
-            lNewExStyle |= WS_EX_APPWINDOW;
         }
         else
         {
             cx = pPresentationParameters->BackBufferWidth;
             cy = pPresentationParameters->BackBufferHeight;
+
             if (!bCenterWindow)
                 uFlags |= SWP_NOMOVE;
-
-            if (nForceWindowStyle) // force windowed style
-            {
-                lOldExStyle &= ~(WS_EX_TOPMOST);
-                lNewStyle = (WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX);
-                lNewStyle |= (nForceWindowStyle == 3) ? (WS_THICKFRAME | WS_MAXIMIZEBOX) : 0;
-                lNewExStyle = (WS_EX_APPWINDOW | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE);
-            }
         }
-        if (nForceWindowStyle) {
+
+        switch(nForceWindowStyle)
+        {
+            case 1: // borderless fullscreen
+            case 4: // borderless window (no style)
+                lNewStyle = lOldStyle & ~(WS_CAPTION | WS_THICKFRAME | WS_MINIMIZE | WS_MAXIMIZE | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_DLGFRAME);
+                lNewStyle |= (lOldStyle & WS_CHILD) ? 0 : WS_POPUP;
+                lNewExStyle = lOldExStyle & ~(WS_EX_CONTEXTHELP | WS_EX_DLGMODALFRAME | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE | WS_EX_WINDOWEDGE | WS_EX_TOOLWINDOW);
+                lNewExStyle |= WS_EX_APPWINDOW;
+                break;
+            case 2: // window
+                lNewStyle = (WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX);
+                lNewExStyle = (WS_EX_APPWINDOW | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE);
+                break;
+            case 3: // resizable window
+                lNewStyle = (WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_THICKFRAME | WS_MAXIMIZEBOX);
+                lNewExStyle = (WS_EX_APPWINDOW | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE);
+                break;
+        }
+
+        if (nForceWindowStyle)
+        {
             if (lNewStyle != lOldStyle)
             {
                 SetWindowLong(hwnd, GWL_STYLE, lNewStyle);
@@ -324,6 +353,30 @@ void ForceWindowed(D3DPRESENT_PARAMETERS* pPresentationParameters, D3DDISPLAYMOD
             }
         }
         SetWindowPos(hwnd, bAlwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST, left, top, cx, cy, uFlags);
+
+        if (bDoNotNotifyOnTaskSwitch || bCaptureMouse)
+        {
+            if (bCaptureMouse)
+                CaptureMouse(hwnd);
+
+            WORD wClassAtom = GetClassWord(hwnd, GCW_ATOM);
+            if (wClassAtom != 0)
+            {
+                bool found = false;
+                for (unsigned int i = 0; i < WndProcList.size(); i++) {
+                    if (WndProcList[i].first == wClassAtom) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found)
+                {
+                    LONG_PTR wndproc = GetWindowLongPtr(hwnd, GWLP_WNDPROC);
+                    WndProcList.emplace_back(wClassAtom, wndproc);
+                    SetWindowLongPtr(hwnd, GWLP_WNDPROC, IsWindowUnicode(hwnd) ? (LONG_PTR)CustomWndProcW : (LONG_PTR)CustomWndProcA);
+                }
+            }
+        }
     }
 }
 
@@ -368,7 +421,7 @@ HRESULT m_IDirect3D9Ex::CreateDevice(UINT Adapter, D3DDEVTYPE DeviceType, HWND h
 
     if (nFullScreenRefreshRateInHz)
         ForceFullScreenRefreshRateInHz(pPresentationParameters);
-    
+
     if (bDisplayFPSCounter)
     {
         if (FrameLimiter::pFPSFont)
@@ -406,7 +459,7 @@ HRESULT m_IDirect3DDevice9Ex::Reset(D3DPRESENT_PARAMETERS* pPresentationParamete
     }
 
     auto hRet = ProxyInterface->Reset(pPresentationParameters);
-    
+
     if (bDisplayFPSCounter)
     {
         if (SUCCEEDED(hRet))
@@ -417,7 +470,7 @@ HRESULT m_IDirect3DDevice9Ex::Reset(D3DPRESENT_PARAMETERS* pPresentationParamete
                 FrameLimiter::pTimeFont->OnResetDevice();
         }
     }
-    
+
     return hRet;
 }
 
@@ -459,7 +512,7 @@ HRESULT m_IDirect3DDevice9Ex::ResetEx(THIS_ D3DPRESENT_PARAMETERS* pPresentation
 
     if (nFullScreenRefreshRateInHz)
         ForceFullScreenRefreshRateInHz(pPresentationParameters);
-    
+
     if (bDisplayFPSCounter)
     {
         if (FrameLimiter::pFPSFont)
@@ -486,7 +539,7 @@ HRESULT m_IDirect3DDevice9Ex::ResetEx(THIS_ D3DPRESENT_PARAMETERS* pPresentation
 
 LRESULT WINAPI CustomWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, int idx)
 {
-    if (hWnd == g_hFocusWindow || _fnIsTopLevelWindow(hWnd)) // skip child windows like buttons, edit boxes, etc. 
+    if (hWnd == g_hFocusWindow || _fnIsTopLevelWindow(hWnd)) // skip child windows like buttons, edit boxes, etc.
     {
         if (bAlwaysOnTop)
         {
@@ -496,7 +549,7 @@ LRESULT WINAPI CustomWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
         switch (uMsg)
         {
             case WM_ACTIVATE:
-                if (LOWORD(wParam) == WA_INACTIVE)
+                if (bDoNotNotifyOnTaskSwitch && LOWORD(wParam) == WA_INACTIVE)
                 {
                     if ((HWND)lParam == NULL)
                         return 0;
@@ -505,24 +558,36 @@ LRESULT WINAPI CustomWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
                     if (dwPID != GetCurrentProcessId())
                         return 0;
                 }
+                if (bCaptureMouse && LOWORD(wParam) != WA_INACTIVE)
+                    CaptureMouse(hWnd);
                 break;
             case WM_NCACTIVATE:
-                if (LOWORD(wParam) == WA_INACTIVE)
+                if (bDoNotNotifyOnTaskSwitch && LOWORD(wParam) == WA_INACTIVE)
                     return 0;
+                if (bCaptureMouse && LOWORD(wParam) != WA_INACTIVE)
+                    CaptureMouse(hWnd);
                 break;
             case WM_ACTIVATEAPP:
-                if (wParam == FALSE)
+                if (bDoNotNotifyOnTaskSwitch && wParam == FALSE)
                     return 0;
+                if (bCaptureMouse && wParam == TRUE)
+                    CaptureMouse(hWnd);
                 break;
             case WM_KILLFOCUS:
+                if (bDoNotNotifyOnTaskSwitch)
                 {
-                if ((HWND)wParam == NULL)
-                    return 0;
-                DWORD dwPID = 0;
-                GetWindowThreadProcessId((HWND)wParam, &dwPID);
-                if (dwPID != GetCurrentProcessId())
-                    return 0;
+                    if ((HWND)wParam == NULL)
+                        return 0;
+                    DWORD dwPID = 0;
+                    GetWindowThreadProcessId((HWND)wParam, &dwPID);
+                    if (dwPID != GetCurrentProcessId())
+                        return 0;
                 }
+                break;
+            case WM_SETFOCUS:
+            case WM_MOUSEACTIVATE:
+                if (bCaptureMouse)
+                    CaptureMouse(hWnd);
                 break;
             default:
                 break;
@@ -923,7 +988,7 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
         case DLL_PROCESS_ATTACH:
         {
             g_hWrapperModule = hModule;
-        
+
             // Load dll
             char path[MAX_PATH];
             GetSystemDirectoryA(path, MAX_PATH);
@@ -958,11 +1023,13 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
                 fFPSLimit = static_cast<float>(GetPrivateProfileInt("MAIN", "FPSLimit", 0, path));
                 nFullScreenRefreshRateInHz = GetPrivateProfileInt("MAIN", "FullScreenRefreshRateInHz", 0, path);
                 bDisplayFPSCounter = GetPrivateProfileInt("MAIN", "DisplayFPSCounter", 0, path);
+                bEnableHooks = GetPrivateProfileInt("MAIN", "EnableHooks", 0, path);
                 bUsePrimaryMonitor = GetPrivateProfileInt("FORCEWINDOWED", "UsePrimaryMonitor", 0, path) != 0;
                 bCenterWindow = GetPrivateProfileInt("FORCEWINDOWED", "CenterWindow", 1, path) != 0;
                 bAlwaysOnTop = GetPrivateProfileInt("FORCEWINDOWED", "AlwaysOnTop", 0, path) != 0;
                 bDoNotNotifyOnTaskSwitch = GetPrivateProfileInt("FORCEWINDOWED", "DoNotNotifyOnTaskSwitch", 0, path) != 0;
                 nForceWindowStyle = GetPrivateProfileInt("FORCEWINDOWED", "ForceWindowStyle", 0, path);
+                bCaptureMouse = GetPrivateProfileInt("FORCEWINDOWED", "CaptureMouse", 0, path) != 0;
 
                 if (fFPSLimit > 0.0f)
                 {
@@ -976,7 +1043,7 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
                 else
                     mFPSLimitMode = FrameLimiter::FPSLimitMode::FPS_NONE;
 
-                if (bDoNotNotifyOnTaskSwitch)
+                if (bEnableHooks && (bDoNotNotifyOnTaskSwitch || bCaptureMouse))
                 {
                     GetSystemWindowsDirectoryA(WinDir, MAX_PATH);
 
