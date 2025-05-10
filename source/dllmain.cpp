@@ -208,9 +208,9 @@ public:
 
             static char str_format_fps[] = "%02d";
             static char str_format_time[] = "%.01f ms";
-            static const D3DXCOLOR YELLOW(D3DCOLOR_XRGB(0xF7, 0xF7, 0));
-            DrawTextOutline(pFPSFont, 10, 10, YELLOW, str_format_fps, fps);
-            DrawTextOutline(pTimeFont, 10, space, YELLOW, str_format_time, (1.0f / fps) * 1000.0f);
+            static const D3DXCOLOR GRAY(D3DCOLOR_XRGB(0xA0, 0xA0, 0xA0));
+            DrawTextOutline(pFPSFont, 10, 10, GRAY, str_format_fps, fps);
+            DrawTextOutline(pTimeFont, 10, space, GRAY, str_format_time, (1.0f / fps) * 1000.0f);
         }
     }
 
