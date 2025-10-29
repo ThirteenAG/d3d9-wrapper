@@ -891,74 +891,51 @@ FARPROC __stdcall hk_GetProcAddress(HMODULE hModule, LPCSTR lpProcName)
 void HookModule(HMODULE hmod)
 {
 	char modpath[MAX_PATH + 1];
-	if (hmod == g_hWrapperModule) // Yeah, let's not go and hook ourselves
+	if (hmod == g_hWrapperModule) // don't hook ourselves
 		return;
+
 	if (GetModuleFileNameA(hmod, modpath, MAX_PATH)) {
 		if (!_strnicmp(modpath, WinDir, strlen(WinDir))) { // skip system modules
 			return;
 		}
 	}
-	if (oRegisterClassA == NULL)
-		oRegisterClassA = (RegisterClassA_fn)Iat_hook::detour_iat_ptr("RegisterClassA", (void*)hk_RegisterClassA, hmod);
-	else
-		Iat_hook::detour_iat_ptr("RegisterClassA", (void*)hk_RegisterClassA, hmod);
 
-	if (oRegisterClassW == NULL)
-		oRegisterClassW = (RegisterClassW_fn)Iat_hook::detour_iat_ptr("RegisterClassW", (void*)hk_RegisterClassW, hmod);
-	else
-		Iat_hook::detour_iat_ptr("RegisterClassW", (void*)hk_RegisterClassW, hmod);
+	// user32.dll imports
+	auto originalsUser32 = IATHook::Replace(
+		hmod, "user32.dll",
+		std::make_tuple("RegisterClassA", (void*)hk_RegisterClassA),
+		std::make_tuple("RegisterClassW", (void*)hk_RegisterClassW),
+		std::make_tuple("RegisterClassExA", (void*)hk_RegisterClassExA),
+		std::make_tuple("RegisterClassExW", (void*)hk_RegisterClassExW),
+		std::make_tuple("GetForegroundWindow", (void*)hk_GetForegroundWindow),
+		std::make_tuple("GetActiveWindow", (void*)hk_GetActiveWindow),
+		std::make_tuple("GetFocus", (void*)hk_GetFocus)
+	);
 
-	if (oRegisterClassExA == NULL)
-		oRegisterClassExA = (RegisterClassExA_fn)Iat_hook::detour_iat_ptr("RegisterClassExA", (void*)hk_RegisterClassExA, hmod);
-	else
-		Iat_hook::detour_iat_ptr("RegisterClassExA", (void*)hk_RegisterClassExA, hmod);
+	if (oRegisterClassA == NULL) { auto it = originalsUser32.find("RegisterClassA");   if (it != originalsUser32.end())  oRegisterClassA = (RegisterClassA_fn)it->second.get(); }
+	if (oRegisterClassW == NULL) { auto it = originalsUser32.find("RegisterClassW");   if (it != originalsUser32.end())  oRegisterClassW = (RegisterClassW_fn)it->second.get(); }
+	if (oRegisterClassExA == NULL) { auto it = originalsUser32.find("RegisterClassExA"); if (it != originalsUser32.end())  oRegisterClassExA = (RegisterClassExA_fn)it->second.get(); }
+	if (oRegisterClassExW == NULL) { auto it = originalsUser32.find("RegisterClassExW"); if (it != originalsUser32.end())  oRegisterClassExW = (RegisterClassExW_fn)it->second.get(); }
+	if (oGetForegroundWindow == NULL) { auto it = originalsUser32.find("GetForegroundWindow"); if (it != originalsUser32.end()) oGetForegroundWindow = (GetForegroundWindow_fn)it->second.get(); }
+	if (oGetActiveWindow == NULL) { auto it = originalsUser32.find("GetActiveWindow");     if (it != originalsUser32.end()) oGetActiveWindow = (GetActiveWindow_fn)it->second.get(); }
+	if (oGetFocus == NULL) { auto it = originalsUser32.find("GetFocus");            if (it != originalsUser32.end()) oGetFocus = (GetFocus_fn)it->second.get(); }
 
-	if (oRegisterClassExW == NULL)
-		oRegisterClassExW = (RegisterClassExW_fn)Iat_hook::detour_iat_ptr("RegisterClassExW", (void*)hk_RegisterClassExW, hmod);
-	else
-		Iat_hook::detour_iat_ptr("RegisterClassExW", (void*)hk_RegisterClassExW, hmod);
+	// kernel32.dll imports
+	auto originalsKernel32 = IATHook::Replace(
+		hmod, "kernel32.dll",
+		std::make_tuple("LoadLibraryA", (void*)hk_LoadLibraryA),
+		std::make_tuple("LoadLibraryW", (void*)hk_LoadLibraryW),
+		std::make_tuple("LoadLibraryExA", (void*)hk_LoadLibraryExA),
+		std::make_tuple("LoadLibraryExW", (void*)hk_LoadLibraryExW),
+		std::make_tuple("FreeLibrary", (void*)hk_FreeLibrary),
+		std::make_tuple("GetProcAddress", (void*)hk_GetProcAddress)
+	);
 
-	if (oGetForegroundWindow == NULL)
-		oGetForegroundWindow = (GetForegroundWindow_fn)Iat_hook::detour_iat_ptr("GetForegroundWindow", (void*)hk_GetForegroundWindow, hmod);
-	else
-		Iat_hook::detour_iat_ptr("GetForegroundWindow", (void*)hk_GetForegroundWindow, hmod);
-
-	if (oGetActiveWindow == NULL)
-		oGetActiveWindow = (GetActiveWindow_fn)Iat_hook::detour_iat_ptr("GetActiveWindow", (void*)hk_GetActiveWindow, hmod);
-	else
-		Iat_hook::detour_iat_ptr("GetActiveWindow", (void*)hk_GetActiveWindow, hmod);
-
-	if (oGetFocus == NULL)
-		oGetFocus = (GetFocus_fn)Iat_hook::detour_iat_ptr("GetFocus", (void*)hk_GetFocus, hmod);
-	else
-		Iat_hook::detour_iat_ptr("GetFocus", (void*)hk_GetFocus, hmod);
-
-	if (oLoadLibraryA == NULL)
-		oLoadLibraryA = (LoadLibraryA_fn)Iat_hook::detour_iat_ptr("LoadLibraryA", (void*)hk_LoadLibraryA, hmod);
-	else
-		Iat_hook::detour_iat_ptr("LoadLibraryA", (void*)hk_LoadLibraryA, hmod);
-
-	if (oLoadLibraryW == NULL)
-		oLoadLibraryW = (LoadLibraryW_fn)Iat_hook::detour_iat_ptr("LoadLibraryW", (void*)hk_LoadLibraryW, hmod);
-	else
-		Iat_hook::detour_iat_ptr("LoadLibraryW", (void*)hk_LoadLibraryW, hmod);
-
-	if (oLoadLibraryExA == NULL)
-		oLoadLibraryExA = (LoadLibraryExA_fn)Iat_hook::detour_iat_ptr("LoadLibraryExA", (void*)hk_LoadLibraryExA, hmod);
-	else
-		Iat_hook::detour_iat_ptr("LoadLibraryExA", (void*)hk_LoadLibraryExA, hmod);
-
-	if (oLoadLibraryExW == NULL)
-		oLoadLibraryExW = (LoadLibraryExW_fn)Iat_hook::detour_iat_ptr("LoadLibraryExW", (void*)hk_LoadLibraryExW, hmod);
-	else
-		Iat_hook::detour_iat_ptr("LoadLibraryExW", (void*)hk_LoadLibraryExW, hmod);
-
-	if (oFreeLibrary == NULL)
-		oFreeLibrary = (FreeLibrary_fn)Iat_hook::detour_iat_ptr("FreeLibrary", (void*)hk_FreeLibrary, hmod);
-	else
-		Iat_hook::detour_iat_ptr("FreeLibrary", (void*)hk_FreeLibrary, hmod);
-
-	Iat_hook::detour_iat_ptr("GetProcAddress", (void*)hk_GetProcAddress, hmod);
+	if (oLoadLibraryA == NULL) { auto it = originalsKernel32.find("LoadLibraryA");   if (it != originalsKernel32.end()) oLoadLibraryA = (LoadLibraryA_fn)it->second.get(); }
+	if (oLoadLibraryW == NULL) { auto it = originalsKernel32.find("LoadLibraryW");   if (it != originalsKernel32.end()) oLoadLibraryW = (LoadLibraryW_fn)it->second.get(); }
+	if (oLoadLibraryExA == NULL) { auto it = originalsKernel32.find("LoadLibraryExA"); if (it != originalsKernel32.end()) oLoadLibraryExA = (LoadLibraryExA_fn)it->second.get(); }
+	if (oLoadLibraryExW == NULL) { auto it = originalsKernel32.find("LoadLibraryExW"); if (it != originalsKernel32.end()) oLoadLibraryExW = (LoadLibraryExW_fn)it->second.get(); }
+	if (oFreeLibrary == NULL) { auto it = originalsKernel32.find("FreeLibrary");    if (it != originalsKernel32.end()) oFreeLibrary = (FreeLibrary_fn)it->second.get(); }
 }
 
 void HookImportedModules()
@@ -1050,49 +1027,82 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
 			{
 				GetSystemWindowsDirectoryA(WinDir, MAX_PATH);
 
-				oRegisterClassA = (RegisterClassA_fn)Iat_hook::detour_iat_ptr("RegisterClassA", (void*)hk_RegisterClassA);
-				oRegisterClassW = (RegisterClassW_fn)Iat_hook::detour_iat_ptr("RegisterClassW", (void*)hk_RegisterClassW);
-				oRegisterClassExA = (RegisterClassExA_fn)Iat_hook::detour_iat_ptr("RegisterClassExA", (void*)hk_RegisterClassExA);
-				oRegisterClassExW = (RegisterClassExW_fn)Iat_hook::detour_iat_ptr("RegisterClassExW", (void*)hk_RegisterClassExW);
-				oGetForegroundWindow = (GetForegroundWindow_fn)Iat_hook::detour_iat_ptr("GetForegroundWindow", (void*)hk_GetForegroundWindow);
-				oGetActiveWindow = (GetActiveWindow_fn)Iat_hook::detour_iat_ptr("GetActiveWindow", (void*)hk_GetActiveWindow);
-				oGetFocus = (GetFocus_fn)Iat_hook::detour_iat_ptr("GetFocus", (void*)hk_GetFocus);
-				oLoadLibraryA = (LoadLibraryA_fn)Iat_hook::detour_iat_ptr("LoadLibraryA", (void*)hk_LoadLibraryA);
-				oLoadLibraryW = (LoadLibraryW_fn)Iat_hook::detour_iat_ptr("LoadLibraryW", (void*)hk_LoadLibraryW);
-				oLoadLibraryExA = (LoadLibraryExA_fn)Iat_hook::detour_iat_ptr("LoadLibraryExA", (void*)hk_LoadLibraryExA);
-				oLoadLibraryExW = (LoadLibraryExW_fn)Iat_hook::detour_iat_ptr("LoadLibraryExW", (void*)hk_LoadLibraryExW);
-				oFreeLibrary = (FreeLibrary_fn)Iat_hook::detour_iat_ptr("FreeLibrary", (void*)hk_FreeLibrary);
+				HMODULE mainModule = GetModuleHandleA(nullptr);
 
-				Iat_hook::detour_iat_ptr("GetProcAddress", (void*)hk_GetProcAddress);
-				Iat_hook::detour_iat_ptr("GetProcAddress", (void*)hk_GetProcAddress, d3d9dll);
+				// Hook main module user32.dll imports
+				{
+					auto originalsUser32 = IATHook::Replace(
+						mainModule, "user32.dll",
+						std::make_tuple("RegisterClassA", (void*)hk_RegisterClassA),
+						std::make_tuple("RegisterClassW", (void*)hk_RegisterClassW),
+						std::make_tuple("RegisterClassExA", (void*)hk_RegisterClassExA),
+						std::make_tuple("RegisterClassExW", (void*)hk_RegisterClassExW),
+						std::make_tuple("GetForegroundWindow", (void*)hk_GetForegroundWindow),
+						std::make_tuple("GetActiveWindow", (void*)hk_GetActiveWindow),
+						std::make_tuple("GetFocus", (void*)hk_GetFocus)
+					);
 
-				if (oGetForegroundWindow == NULL)
-					oGetForegroundWindow = (GetForegroundWindow_fn)Iat_hook::detour_iat_ptr("GetForegroundWindow", (void*)hk_GetForegroundWindow, d3d9dll);
-				else
-					Iat_hook::detour_iat_ptr("GetForegroundWindow", (void*)hk_GetForegroundWindow, d3d9dll);
+					if (oRegisterClassA == NULL) { auto it = originalsUser32.find("RegisterClassA");   if (it != originalsUser32.end())  oRegisterClassA = (RegisterClassA_fn)it->second.get(); }
+					if (oRegisterClassW == NULL) { auto it = originalsUser32.find("RegisterClassW");   if (it != originalsUser32.end())  oRegisterClassW = (RegisterClassW_fn)it->second.get(); }
+					if (oRegisterClassExA == NULL) { auto it = originalsUser32.find("RegisterClassExA"); if (it != originalsUser32.end())  oRegisterClassExA = (RegisterClassExA_fn)it->second.get(); }
+					if (oRegisterClassExW == NULL) { auto it = originalsUser32.find("RegisterClassExW"); if (it != originalsUser32.end())  oRegisterClassExW = (RegisterClassExW_fn)it->second.get(); }
+					if (oGetForegroundWindow == NULL) { auto it = originalsUser32.find("GetForegroundWindow"); if (it != originalsUser32.end()) oGetForegroundWindow = (GetForegroundWindow_fn)it->second.get(); }
+					if (oGetActiveWindow == NULL) { auto it = originalsUser32.find("GetActiveWindow");     if (it != originalsUser32.end()) oGetActiveWindow = (GetActiveWindow_fn)it->second.get(); }
+					if (oGetFocus == NULL) { auto it = originalsUser32.find("GetFocus");            if (it != originalsUser32.end()) oGetFocus = (GetFocus_fn)it->second.get(); }
+				}
 
-				HMODULE ole32 = GetModuleHandleA("ole32.dll");
-				if (ole32) {
-					if (oRegisterClassA == NULL)
-						oRegisterClassA = (RegisterClassA_fn)Iat_hook::detour_iat_ptr("RegisterClassA", (void*)hk_RegisterClassA, ole32);
-					else
-						Iat_hook::detour_iat_ptr("RegisterClassA", (void*)hk_RegisterClassA, ole32);
-					if (oRegisterClassW == NULL)
-						oRegisterClassW = (RegisterClassW_fn)Iat_hook::detour_iat_ptr("RegisterClassW", (void*)hk_RegisterClassW, ole32);
-					else
-						Iat_hook::detour_iat_ptr("RegisterClassW", (void*)hk_RegisterClassW, ole32);
-					if (oRegisterClassExA == NULL)
-						oRegisterClassExA = (RegisterClassExA_fn)Iat_hook::detour_iat_ptr("RegisterClassExA", (void*)hk_RegisterClassExA, ole32);
-					else
-						Iat_hook::detour_iat_ptr("RegisterClassExA", (void*)hk_RegisterClassExA, ole32);
-					if (oRegisterClassExW == NULL)
-						oRegisterClassExW = (RegisterClassExW_fn)Iat_hook::detour_iat_ptr("RegisterClassExW", (void*)hk_RegisterClassExW, ole32);
-					else
-						Iat_hook::detour_iat_ptr("RegisterClassExW", (void*)hk_RegisterClassExW, ole32);
-					if (oGetActiveWindow == NULL)
-						oGetActiveWindow = (GetActiveWindow_fn)Iat_hook::detour_iat_ptr("GetActiveWindow", (void*)hk_GetActiveWindow, ole32);
-					else
-						Iat_hook::detour_iat_ptr("GetActiveWindow", (void*)hk_GetActiveWindow, ole32);
+				// Hook main module kernel32.dll imports (including GetProcAddress)
+				{
+					auto originalsKernel32 = IATHook::Replace(
+						mainModule, "kernel32.dll",
+						std::make_tuple("LoadLibraryA", (void*)hk_LoadLibraryA),
+						std::make_tuple("LoadLibraryW", (void*)hk_LoadLibraryW),
+						std::make_tuple("LoadLibraryExA", (void*)hk_LoadLibraryExA),
+						std::make_tuple("LoadLibraryExW", (void*)hk_LoadLibraryExW),
+						std::make_tuple("FreeLibrary", (void*)hk_FreeLibrary),
+						std::make_tuple("GetProcAddress", (void*)hk_GetProcAddress)
+					);
+
+					if (oLoadLibraryA == NULL) { auto it = originalsKernel32.find("LoadLibraryA");   if (it != originalsKernel32.end()) oLoadLibraryA = (LoadLibraryA_fn)it->second.get(); }
+					if (oLoadLibraryW == NULL) { auto it = originalsKernel32.find("LoadLibraryW");   if (it != originalsKernel32.end()) oLoadLibraryW = (LoadLibraryW_fn)it->second.get(); }
+					if (oLoadLibraryExA == NULL) { auto it = originalsKernel32.find("LoadLibraryExA"); if (it != originalsKernel32.end()) oLoadLibraryExA = (LoadLibraryExA_fn)it->second.get(); }
+					if (oLoadLibraryExW == NULL) { auto it = originalsKernel32.find("LoadLibraryExW"); if (it != originalsKernel32.end()) oLoadLibraryExW = (LoadLibraryExW_fn)it->second.get(); }
+					if (oFreeLibrary == NULL) { auto it = originalsKernel32.find("FreeLibrary");    if (it != originalsKernel32.end()) oFreeLibrary = (FreeLibrary_fn)it->second.get(); }
+				}
+
+				// Ensure d3d9.dll's IAT calls route through our hooks as well
+				if (d3d9dll)
+				{
+					IATHook::Replace(d3d9dll, "kernel32.dll",
+						std::make_tuple("GetProcAddress", (void*)hk_GetProcAddress)
+					);
+
+					auto u32_d3d9 = IATHook::Replace(d3d9dll, "user32.dll",
+						std::make_tuple("GetForegroundWindow", (void*)hk_GetForegroundWindow)
+					);
+					if (oGetForegroundWindow == NULL) {
+						auto it = u32_d3d9.find("GetForegroundWindow");
+						if (it != u32_d3d9.end()) oGetForegroundWindow = (GetForegroundWindow_fn)it->second.get();
+					}
+				}
+
+				// Hook ole32.dll's imports of user32 where applicable
+				if (HMODULE ole32 = GetModuleHandleA("ole32.dll"))
+				{
+					auto originalsOleUser32 = IATHook::Replace(
+						ole32, "user32.dll",
+						std::make_tuple("RegisterClassA", (void*)hk_RegisterClassA),
+						std::make_tuple("RegisterClassW", (void*)hk_RegisterClassW),
+						std::make_tuple("RegisterClassExA", (void*)hk_RegisterClassExA),
+						std::make_tuple("RegisterClassExW", (void*)hk_RegisterClassExW),
+						std::make_tuple("GetActiveWindow", (void*)hk_GetActiveWindow)
+					);
+
+					if (oRegisterClassA == NULL) { auto it = originalsOleUser32.find("RegisterClassA");   if (it != originalsOleUser32.end())  oRegisterClassA = (RegisterClassA_fn)it->second.get(); }
+					if (oRegisterClassW == NULL) { auto it = originalsOleUser32.find("RegisterClassW");   if (it != originalsOleUser32.end())  oRegisterClassW = (RegisterClassW_fn)it->second.get(); }
+					if (oRegisterClassExA == NULL) { auto it = originalsOleUser32.find("RegisterClassExA"); if (it != originalsOleUser32.end())  oRegisterClassExA = (RegisterClassExA_fn)it->second.get(); }
+					if (oRegisterClassExW == NULL) { auto it = originalsOleUser32.find("RegisterClassExW"); if (it != originalsOleUser32.end())  oRegisterClassExW = (RegisterClassExW_fn)it->second.get(); }
+					if (oGetActiveWindow == NULL) { auto it = originalsOleUser32.find("GetActiveWindow");  if (it != originalsOleUser32.end())  oGetActiveWindow = (GetActiveWindow_fn)it->second.get(); }
 				}
 
 				HookImportedModules();

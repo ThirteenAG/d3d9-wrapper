@@ -3,106 +3,225 @@
 
 #include <windows.h>
 #include <stdint.h>
+#include <map>
+#include <string>
+#include <future>
 
-#ifdef __cplusplus
-namespace Iat_hook
+class IATHook
 {
-#endif
-    void** find_iat_func(const char* function, HMODULE hModule, const char* chModule, const DWORD ordinal)
-    {
-        if (!hModule)
-            hModule = GetModuleHandle(nullptr);
+public:
+	template <class... Ts>
+	static auto Replace(HMODULE target_module, std::string_view dll_name, Ts&& ... inputs)
+	{
+		std::map<std::string, std::future<void*>> originalPtrs;
 
-        const DWORD_PTR instance = reinterpret_cast<DWORD_PTR>(hModule);
-        const PIMAGE_NT_HEADERS ntHeader = reinterpret_cast<PIMAGE_NT_HEADERS>(instance + reinterpret_cast<PIMAGE_DOS_HEADER>(instance)->e_lfanew);
-        PIMAGE_IMPORT_DESCRIPTOR pImports = reinterpret_cast<PIMAGE_IMPORT_DESCRIPTOR>(instance + ntHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+		const DWORD_PTR instance = reinterpret_cast<DWORD_PTR>(target_module);
+		const PIMAGE_NT_HEADERS ntHeader = reinterpret_cast<PIMAGE_NT_HEADERS>(instance + reinterpret_cast<PIMAGE_DOS_HEADER>(instance)->e_lfanew);
+		PIMAGE_IMPORT_DESCRIPTOR pImports = reinterpret_cast<PIMAGE_IMPORT_DESCRIPTOR>(instance + ntHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress);
+		DWORD dwProtect[2];
 
-        __try
-        {
-            for (; pImports->Name != 0; pImports++)
-            {
-                auto mod_name = reinterpret_cast<const char*>((size_t*)(pImports->Name + (size_t)hModule));
-                if (_stricmp(reinterpret_cast<const char*>(instance + pImports->Name), mod_name) == 0)
-                {
-                    if (pImports->OriginalFirstThunk != 0)
-                    {
-                        const PIMAGE_THUNK_DATA pThunk = reinterpret_cast<PIMAGE_THUNK_DATA>(instance + pImports->OriginalFirstThunk);
-                        for (ptrdiff_t j = 0; pThunk[j].u1.AddressOfData != 0; j++)
-                        {
-                            if (strcmp(reinterpret_cast<PIMAGE_IMPORT_BY_NAME>(instance + pThunk[j].u1.AddressOfData)->Name, function) == 0)
-                            {
-                                void** pAddress = reinterpret_cast<void**>(instance + pImports->FirstThunk) + j;
-                                return pAddress;
-                            }
-                        }
-                    }
-                    else
-                    {
-                        void** pFunctions = reinterpret_cast<void**>(instance + pImports->FirstThunk);
-                        for (ptrdiff_t j = 0; pFunctions[j] != nullptr; j++)
-                        {
-                            if (pFunctions[j] == GetProcAddress(GetModuleHandle(mod_name), function))
-                            {
-                                return &pFunctions[j];
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        __except ((GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION) ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH)
-        {
-        }
+		for (; pImports->Name != 0; pImports++)
+		{
+			if (_stricmp(reinterpret_cast<const char*>(instance + pImports->Name), dll_name.data()) == 0)
+			{
+				if (pImports->OriginalFirstThunk != 0)
+				{
+					const PIMAGE_THUNK_DATA pThunk = reinterpret_cast<PIMAGE_THUNK_DATA>(instance + pImports->OriginalFirstThunk);
 
-        __try
-        {
-            for (IMAGE_IMPORT_DESCRIPTOR* iid = pImports; iid->Name != 0; iid++) {
-                if (chModule != NULL)
-                {
-                    char* mod_name = (char*)((size_t*)(iid->Name + (size_t)hModule));
-                    if (lstrcmpiA(chModule, mod_name))
-                        continue;
-                }
-                for (int func_idx = 0; *(func_idx + (void**)(iid->FirstThunk + (size_t)hModule)) != NULL; func_idx++) {
-                    size_t mod_func_ptr_ord = (size_t)(*(func_idx + (size_t*)(iid->OriginalFirstThunk + (size_t)hModule)));
-                    if (IMAGE_SNAP_BY_ORDINAL(mod_func_ptr_ord))
-                    {
-                        if (chModule != NULL && ordinal != 0 && (ordinal == IMAGE_ORDINAL(mod_func_ptr_ord)))
-                            return func_idx + (void**)(iid->FirstThunk + (size_t)hModule);
-                    }
-                    else if (function != NULL && function[0] != 0)
-                    {
-                        char* mod_func_name = (char*)(mod_func_ptr_ord + (size_t)hModule + 2);
-                        const intptr_t nmod_func_name = (intptr_t)mod_func_name;
-                        if (nmod_func_name >= 0 && !lstrcmpA(function, mod_func_name)) {
-                            return func_idx + (void**)(iid->FirstThunk + (size_t)hModule);
-                        }
-                    }
-                }
-            }
-        }
-        __except ((GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION) ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH)
-        {
-        }
+					for (ptrdiff_t j = 0; pThunk[j].u1.AddressOfData != 0; j++)
+					{
+						auto pAddress = reinterpret_cast<void**>(instance + pImports->FirstThunk) + j;
+						if (!pAddress) continue;
+						VirtualProtect(pAddress, sizeof(pAddress), PAGE_EXECUTE_READWRITE, &dwProtect[0]);
+						([&]
+							{
+								auto name = std::string_view(std::get<0>(inputs));
+								auto num = std::string("-1");
+								if (name.contains("@")) {
+									num = name.substr(name.find_last_of("@") + 1);
+									name = name.substr(0, name.find_last_of("@"));
+								}
 
-        return 0;
-    }
+								if (pThunk[j].u1.Ordinal & IMAGE_ORDINAL_FLAG)
+								{
+									try
+									{
+										if (IMAGE_ORDINAL(pThunk[j].u1.Ordinal) == std::stoi(num.data()))
+										{
+											originalPtrs[std::get<0>(inputs)] = std::async(std::launch::deferred, [&]() -> void* { return *pAddress; });
+											originalPtrs[std::get<0>(inputs)].wait();
+											*pAddress = std::get<1>(inputs);
+										}
+									}
+									catch (...) {}
+								}
+								else if ((*pAddress && *pAddress == (void*)GetProcAddress(GetModuleHandleA(dll_name.data()), name.data())) ||
+									(strcmp(reinterpret_cast<PIMAGE_IMPORT_BY_NAME>(instance + pThunk[j].u1.AddressOfData)->Name, name.data()) == 0))
+								{
+									originalPtrs[std::get<0>(inputs)] = std::async(std::launch::deferred, [&]() -> void* { return *pAddress; });
+									originalPtrs[std::get<0>(inputs)].wait();
+									*pAddress = std::get<1>(inputs);
+								}
+							} (), ...);
+						VirtualProtect(pAddress, sizeof(pAddress), dwProtect[0], &dwProtect[1]);
+					}
+				}
+				else
+				{
+					auto pFunctions = reinterpret_cast<void**>(instance + pImports->FirstThunk);
 
-    uintptr_t detour_iat_ptr(const char* function, void* newfunction, HMODULE hModule = NULL, const char* chModule = NULL, const DWORD ordinal = 0)
-    {
-        void** func_ptr = find_iat_func(function, hModule, chModule, ordinal);
-        if (!func_ptr || *func_ptr == newfunction || *func_ptr == NULL)
-            return 0;
+					for (ptrdiff_t j = 0; pFunctions[j] != nullptr; j++)
+					{
+						auto pAddress = reinterpret_cast<void**>(pFunctions[j]);
+						VirtualProtect(pAddress, sizeof(pAddress), PAGE_EXECUTE_READWRITE, &dwProtect[0]);
+						([&]
+							{
+								if (*pAddress && *pAddress == (void*)GetProcAddress(GetModuleHandleA(dll_name.data()), std::get<0>(inputs)))
+								{
+									originalPtrs[std::get<0>(inputs)] = std::async(std::launch::deferred, [&]() -> void* { return *pAddress; });
+									originalPtrs[std::get<0>(inputs)].wait();
+									*pAddress = std::get<1>(inputs);
+								}
+							} (), ...);
+						VirtualProtect(pAddress, sizeof(pAddress), dwProtect[0], &dwProtect[1]);
+					}
+				}
+			}
+		}
 
-        DWORD old_rights, new_rights = PAGE_READWRITE;
-        VirtualProtect(func_ptr, sizeof(uintptr_t), new_rights, &old_rights);
-        uintptr_t ret = (uintptr_t)*func_ptr;
-        *func_ptr = newfunction;
-        VirtualProtect(func_ptr, sizeof(uintptr_t), old_rights, &new_rights);
-        return ret;
-    }
-#ifdef __cplusplus
+		if (originalPtrs.empty())
+		{
+			PIMAGE_DELAYLOAD_DESCRIPTOR pDelayed = reinterpret_cast<PIMAGE_DELAYLOAD_DESCRIPTOR>(instance + ntHeader->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT].VirtualAddress);
+			if (pDelayed)
+			{
+				for (; pDelayed->DllNameRVA != 0; pDelayed++)
+				{
+					if (_stricmp(reinterpret_cast<const char*>(instance + pDelayed->DllNameRVA), dll_name.data()) == 0)
+					{
+						if (pDelayed->ImportAddressTableRVA != 0)
+						{
+							const PIMAGE_THUNK_DATA pThunk = reinterpret_cast<PIMAGE_THUNK_DATA>(instance + pDelayed->ImportNameTableRVA);
+							const PIMAGE_THUNK_DATA pFThunk = reinterpret_cast<PIMAGE_THUNK_DATA>(instance + pDelayed->ImportAddressTableRVA);
+
+							for (ptrdiff_t j = 0; pThunk[j].u1.AddressOfData != 0; j++)
+							{
+								auto pAddress = reinterpret_cast<void**>(pFThunk[j].u1.Function);
+								if (!pAddress) continue;
+								if (pThunk[j].u1.Ordinal & IMAGE_ORDINAL_FLAG)
+									pAddress = *reinterpret_cast<void***>(pFThunk[j].u1.Function + 1); // mov     eax, offset *
+
+								VirtualProtect(pAddress, sizeof(pAddress), PAGE_EXECUTE_READWRITE, &dwProtect[0]);
+								([&]
+									{
+										auto name = std::string_view(std::get<0>(inputs));
+										auto num = std::string("-1");
+										if (name.contains("@")) {
+											num = name.substr(name.find_last_of("@") + 1);
+											name = name.substr(0, name.find_last_of("@"));
+										}
+
+										if (pThunk[j].u1.Ordinal & IMAGE_ORDINAL_FLAG)
+										{
+											try
+											{
+												if (IMAGE_ORDINAL(pThunk[j].u1.Ordinal) == std::stoi(num.data()))
+												{
+													originalPtrs[std::get<0>(inputs)] = std::async(std::launch::async,
+														[](void** pAddress, void* value, PVOID instance) -> void*
+														{
+															DWORD dwProtect[2];
+															VirtualProtect(pAddress, sizeof(pAddress), PAGE_EXECUTE_READWRITE, &dwProtect[0]);
+															MEMORY_BASIC_INFORMATION mbi;
+															mbi.AllocationBase = instance;
+															do
+															{
+																VirtualQuery(*pAddress, &mbi, sizeof(MEMORY_BASIC_INFORMATION));
+																std::this_thread::sleep_for(std::chrono::milliseconds(100));
+															} while (mbi.AllocationBase == instance);
+															auto r = *pAddress;
+															*pAddress = value;
+															VirtualProtect(pAddress, sizeof(pAddress), dwProtect[0], &dwProtect[1]);
+															return r;
+														}, pAddress, std::get<1>(inputs), (PVOID)instance);
+												}
+											}
+											catch (...) {}
+										}
+										else if ((*pAddress && *pAddress == (void*)GetProcAddress(GetModuleHandleA(dll_name.data()), name.data())) ||
+											(strcmp(reinterpret_cast<PIMAGE_IMPORT_BY_NAME>(instance + pThunk[j].u1.AddressOfData)->Name, name.data()) == 0))
+										{
+											originalPtrs[std::get<0>(inputs)] = std::async(std::launch::async,
+												[](void** pAddress, void* value, PVOID instance) -> void*
+												{
+													DWORD dwProtect[2];
+													VirtualProtect(pAddress, sizeof(pAddress), PAGE_EXECUTE_READWRITE, &dwProtect[0]);
+													MEMORY_BASIC_INFORMATION mbi;
+													mbi.AllocationBase = instance;
+													do
+													{
+														VirtualQuery(*pAddress, &mbi, sizeof(MEMORY_BASIC_INFORMATION));
+														std::this_thread::sleep_for(std::chrono::milliseconds(100));
+													} while (mbi.AllocationBase == instance);
+													auto r = *pAddress;
+													*pAddress = value;
+													VirtualProtect(pAddress, sizeof(pAddress), dwProtect[0], &dwProtect[1]);
+													return r;
+												}, pAddress, std::get<1>(inputs), (PVOID)instance);
+										}
+									} (), ...);
+								VirtualProtect(pAddress, sizeof(pAddress), dwProtect[0], &dwProtect[1]);
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if (originalPtrs.empty()) // e.g. re5dx9.exe steam
+		{
+			static auto getSection = [](const PIMAGE_NT_HEADERS nt_headers, unsigned section) -> PIMAGE_SECTION_HEADER
+				{
+					return reinterpret_cast<PIMAGE_SECTION_HEADER>(
+						(UCHAR*)nt_headers->OptionalHeader.DataDirectory +
+						nt_headers->OptionalHeader.NumberOfRvaAndSizes * sizeof(IMAGE_DATA_DIRECTORY) +
+						section * sizeof(IMAGE_SECTION_HEADER));
+				};
+
+			for (auto i = 0; i < ntHeader->FileHeader.NumberOfSections; i++)
+			{
+				auto sec = getSection(ntHeader, i);
+				auto pFunctions = reinterpret_cast<void**>(instance + max(sec->PointerToRawData, sec->VirtualAddress));
+
+				for (ptrdiff_t j = 0; j < 300; j++)
+				{
+					auto pAddress = reinterpret_cast<void**>(&pFunctions[j]);
+					VirtualProtect(pAddress, sizeof(pAddress), PAGE_EXECUTE_READWRITE, &dwProtect[0]);
+					([&]
+						{
+							auto name = std::string_view(std::get<0>(inputs));
+							auto num = std::string("-1");
+							if (name.contains("@")) {
+								num = name.substr(name.find_last_of("@") + 1);
+								name = name.substr(0, name.find_last_of("@"));
+							}
+
+							if (*pAddress && *pAddress == (void*)GetProcAddress(GetModuleHandleA(dll_name.data()), name.data()))
+							{
+								originalPtrs[std::get<0>(inputs)] = std::async(std::launch::deferred, [&]() -> void* { return *pAddress; });
+								originalPtrs[std::get<0>(inputs)].wait();
+								*pAddress = std::get<1>(inputs);
+							}
+						} (), ...);
+					VirtualProtect(pAddress, sizeof(pAddress), dwProtect[0], &dwProtect[1]);
+				}
+
+				if (!originalPtrs.empty())
+					return originalPtrs;
+			}
+		}
+
+		return originalPtrs;
+	}
 };
-#endif
 
 #endif //__IATHOOK_H
