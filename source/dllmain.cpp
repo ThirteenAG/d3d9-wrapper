@@ -51,7 +51,6 @@ bool bDoNotNotifyOnTaskSwitch;
 bool bDisplayFPSCounter;
 bool bEnableHooks;
 bool bCaptureMouse;
-bool bDisableScreenSaver;
 float fFPSLimit;
 int nFullScreenRefreshRateInHz;
 int nForceWindowStyle;
@@ -1005,7 +1004,6 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
 			nFullScreenRefreshRateInHz = GetPrivateProfileInt("MAIN", "FullScreenRefreshRateInHz", 0, path);
 			bDisplayFPSCounter = GetPrivateProfileInt("MAIN", "DisplayFPSCounter", 0, path);
 			bEnableHooks = GetPrivateProfileInt("MAIN", "EnableHooks", 0, path);
-			bDisableScreenSaver = GetPrivateProfileInt("MAIN", "DisableScreenSaver", 0, path) != 0;
 			bUsePrimaryMonitor = GetPrivateProfileInt("FORCEWINDOWED", "UsePrimaryMonitor", 0, path) != 0;
 			bCenterWindow = GetPrivateProfileInt("FORCEWINDOWED", "CenterWindow", 1, path) != 0;
 			bAlwaysOnTop = GetPrivateProfileInt("FORCEWINDOWED", "AlwaysOnTop", 0, path) != 0;
@@ -1013,11 +1011,6 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
 			nForceWindowStyle = GetPrivateProfileInt("FORCEWINDOWED", "ForceWindowStyle", 0, path);
 			bCaptureMouse = GetPrivateProfileInt("FORCEWINDOWED", "CaptureMouse", 0, path) != 0;
 
-			if (bDisableScreenSaver)
-			{
-				SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED);
-			}
-			
 			if (fFPSLimit > 0.0f)
 			{
 				FrameLimiter::FPSLimitMode mode = (GetPrivateProfileInt("MAIN", "FPSLimitMode", 1, path) == 2) ? FrameLimiter::FPSLimitMode::FPS_ACCURATE : FrameLimiter::FPSLimitMode::FPS_REALTIME;
@@ -1121,12 +1114,7 @@ bool WINAPI DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
 	{
 		if (mFPSLimitMode == FrameLimiter::FPSLimitMode::FPS_ACCURATE)
 			timeEndPeriod(1);
-		
-		if (bDisableScreenSaver)
-		{
-			SetThreadExecutionState(ES_CONTINUOUS);
-		}
-		
+
 		if (d3d9dll)
 			FreeLibrary(d3d9dll);
 	}
